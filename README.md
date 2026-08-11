@@ -36,9 +36,11 @@ inside the chat** — with album art, mood label, and playback controls.
 - 🎧 **Characters hear the music** — the currently playing track (name, artist, mood)
   is injected into the prompt, so characters can naturally react to the soundtrack of
   the scene. Template and injection depth are configurable; off with one checkbox.
-- ❤️ **Like & auto-playlist** — a heart button on the in-chat block saves the track to
-  your Liked Songs, and every played track is automatically collected into a private
-  **"RP Vibe Music"** playlist in your Spotify — the permanent soundtrack of your roleplay.
+- ❤️ **Liked Songs picker + auto-playlist** — the extension can first try matching
+  tracks from your Spotify **Liked Songs** before falling back to global Spotify search.
+  A heart button on the in-chat block saves/removes the track from Liked Songs, and every
+  played track is automatically collected into a private **"RP Vibe Music"** playlist —
+  the permanent soundtrack of your roleplay.
 - 🔊 **Scene-aware volume** — a volume slider right on the in-chat block, plus auto
   volume driven by the scene energy the LLM reports: battles get louder, cozy and
   sentimental scenes get quieter.
@@ -76,8 +78,9 @@ inside the chat** — with album art, mood label, and playback controls.
 
 ## Updating from v1.3 or older
 
-The like/playlist features need extra Spotify permissions. After updating, press
-**Connect Spotify** once more to re-authorize — everything else keeps working as before.
+The Liked Songs picker and like/playlist features need extra Spotify permissions.
+After updating, press **Connect Spotify** once more to re-authorize — everything else
+keeps working as before.
 
 ## Notes & limitations
 

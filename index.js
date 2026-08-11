@@ -24,6 +24,7 @@ const defaultSettings = {
     injectEnabled: true,
     injectDepth: 1,
     injectTemplate: '',
+    preferLiked: true,
     autoPlaylist: true,
     playlistId: '',
     playlistUris: [],
@@ -48,6 +49,7 @@ let searchResults = [];
 let searchIndex = 0;
 let currentVolume = 70;
 let likedCache = {};
+let likedTracksCache = { fetchedAt: 0, tracks: [] };
 let scopeWarned = false;
 
 function getCtx() {
@@ -154,6 +156,7 @@ const LANGS = {
         sInjectDepth: 'Injection depth (messages from the end)',
         sInjectTemplate: 'Injection template ({{song}}, {{artist}}, {{album}}, {{mood}})',
         injectDefault: '[Background music is playing right now: "{{song}}" by {{artist}} (mood: {{mood}}). Characters can hear it and may naturally react to it.]',
+        sPreferLiked: 'First try matching music from your Liked Songs',
         sAutoPlaylist: 'Save played tracks to the "RP Vibe Music" playlist in Spotify',
         sAutoVolume: 'Auto volume by scene energy — battles louder, cozy scenes quieter',
         sSmooth: 'Soft switch — let the current track finish, start the new vibe via the queue',
@@ -168,6 +171,10 @@ const LANGS = {
         bannedTrack: 'Banned: {name}. Picking another track…',
         queuedNote: 'Queued — starts after the current track.',
         queuedStatus: 'Queued next: {name} — {artists} ({mood})',
+        checkingLiked: 'Checking your Liked Songs for this vibe…',
+        likedNoMatch: 'No matching Liked Songs for this vibe — searching Spotify.',
+        likedSource: 'Liked Songs',
+        likedLoadFailed: 'Could not read Liked Songs ({message}) — searching Spotify.',
         needReconnect: 'The new features need extra Spotify permissions — press "Connect Spotify" once to re-authorize.',
     },
     ru: {
@@ -241,6 +248,7 @@ const LANGS = {
         sInjectDepth: 'Глубина вставки (сообщений от конца)',
         sInjectTemplate: 'Шаблон вставки ({{song}}, {{artist}}, {{album}}, {{mood}})',
         injectDefault: '[Прямо сейчас фоном играет музыка: «{{song}}» — {{artist}} (настроение: {{mood}}). Персонажи её слышат и могут естественно на неё реагировать.]',
+        sPreferLiked: 'Сначала подбирать музыку из «Любимых треков»',
         sAutoPlaylist: 'Сохранять сыгранные треки в плейлист «RP Vibe Music» в Spotify',
         sAutoVolume: 'Автогромкость по энергии сцены — бои громче, уютные сцены тише',
         sSmooth: 'Мягкая смена — дать треку доиграть, новый вайб через очередь',
@@ -255,6 +263,10 @@ const LANGS = {
         bannedTrack: 'Забанен: {name}. Подбираю другой трек…',
         queuedNote: 'В очереди — начнётся после текущего трека.',
         queuedStatus: 'Следующим в очереди: {name} — {artists} ({mood})',
+        checkingLiked: 'Проверяю «Любимые треки» под этот вайб…',
+        likedNoMatch: 'В «Любимых треках» нет подходящего совпадения — ищу по Spotify.',
+        likedSource: 'Любимые треки',
+        likedLoadFailed: 'Не удалось прочитать «Любимые треки» ({message}) — ищу по Spotify.',
         needReconnect: 'Новым функциям нужны дополнительные права Spotify — нажмите «Подключить Spotify» ещё раз.',
     },
 };
@@ -431,12 +443,9 @@ function sanitizeQuery(query) {
         .slice(0, 100);
 }
 
-async function searchTracks(query) {
-    // Dev-mode apps are capped at limit=10 since Spotify's Feb 2026 API changes.
-    const res = await api(`/search?type=track&limit=10&q=${encodeURIComponent(query)}`);
-    if (!res.ok) throw new Error(t('searchFailed', { status: res.status, query }));
-    const data = await res.json();
-    const tracks = (data.tracks?.items || []).map(t => ({
+function normalizeTrack(t) {
+    if (!t?.uri || t.type !== 'track') return null;
+    return {
         uri: t.uri,
         name: t.name,
         artists: (t.artists || []).map(a => a.name).join(', '),
@@ -444,7 +453,21 @@ async function searchTracks(query) {
         image: t.album?.images?.[1]?.url || t.album?.images?.[0]?.url || '',
         url: t.external_urls?.spotify || '',
         popularity: Number(t.popularity) || 0,
-    })).filter(track => !(settings.bannedUris || []).includes(track.uri));
+    };
+}
+
+function isBanned(track) {
+    return (settings.bannedUris || []).includes(track?.uri);
+}
+
+async function searchTracks(query) {
+    // Dev-mode apps are capped at limit=10 since Spotify's Feb 2026 API changes.
+    const res = await api(`/search?type=track&limit=10&q=${encodeURIComponent(query)}`);
+    if (!res.ok) throw new Error(t('searchFailed', { status: res.status, query }));
+    const data = await res.json();
+    const tracks = (data.tracks?.items || [])
+        .map(normalizeTrack)
+        .filter(track => track && !isBanned(track));
     return rankTracks(tracks);
 }
 
@@ -457,6 +480,90 @@ function rankTracks(tracks) {
         const scoreB = b.popularity - (JUNK_RE.test(`${b.name} ${b.artists} ${b.album}`) ? 60 : 0);
         return scoreB - scoreA;
     });
+}
+
+function musicTokens(text) {
+    return [...new Set(String(text || '')
+        .toLowerCase()
+        .replace(/[^a-zа-яё0-9\s-]/gi, ' ')
+        .split(/[\s-]+/)
+        .map(x => x.trim())
+        .filter(x => x.length >= 3 && !['the', 'and', 'with', 'feat', 'remix', 'mix', 'ost', 'для', 'или', 'что', 'как', 'это'].includes(x)))];
+}
+
+const LIKED_MOOD_HINTS = [
+    { keys: ['battle', 'fight', 'epic', 'war', 'агресс', 'битв', 'бой'], words: ['battle', 'war', 'fight', 'blood', 'hero', 'storm', 'fire', 'rage', 'riot', 'army', 'doom', 'kill'] },
+    { keys: ['horror', 'dark', 'tension', 'страх', 'ужас', 'мрак'], words: ['dark', 'night', 'shadow', 'ghost', 'monster', 'devil', 'hell', 'grave', 'dead', 'death', 'black'] },
+    { keys: ['romantic', 'love', 'passion', 'роман', 'любов', 'страст'], words: ['love', 'heart', 'kiss', 'sweet', 'baby', 'desire', 'lover', 'romance', 'touch'] },
+    { keys: ['sad', 'sorrow', 'melancholic', 'печал', 'груст'], words: ['sad', 'cry', 'tears', 'lonely', 'alone', 'goodbye', 'blue', 'rain', 'broken', 'hurt'] },
+    { keys: ['cozy', 'calm', 'lo-fi', 'уют', 'спокой'], words: ['rain', 'home', 'warm', 'coffee', 'tea', 'sleep', 'dream', 'soft', 'lofi', 'lo-fi', 'acoustic'] },
+    { keys: ['party', 'dance', 'festive', 'весел', 'празд'], words: ['dance', 'party', 'club', 'fun', 'summer', 'night', 'disco', 'groove'] },
+    { keys: ['magic', 'fantasy', 'magical', 'маг'], words: ['magic', 'spell', 'dream', 'fairy', 'fantasy', 'moon', 'star', 'wonder'] },
+];
+
+function scoreLikedTrack(track, mood) {
+    const queryText = `${mood?.query || ''} ${mood?.mood || ''} ${mood?.reason || ''}`.toLowerCase();
+    const tokens = musicTokens(queryText);
+    const text = `${track.name} ${track.artists} ${track.album}`.toLowerCase();
+    let score = 0;
+    for (const token of tokens) {
+        if (text.includes(token)) score += token.length >= 6 ? 18 : 12;
+    }
+    for (const hint of LIKED_MOOD_HINTS) {
+        if (!hint.keys.some(key => queryText.includes(key))) continue;
+        for (const word of hint.words) {
+            if (text.includes(word)) score += 10;
+        }
+    }
+    if (score > 0) score += Math.min(20, track.popularity / 5);
+    if (JUNK_RE.test(text)) score -= 60;
+    return score;
+}
+
+async function getLikedTracks() {
+    if (Date.now() - likedTracksCache.fetchedAt < 10 * 60_000) {
+        return likedTracksCache.tracks;
+    }
+    const tracks = [];
+    for (let offset = 0; offset < 200; offset += 50) {
+        const res = await api(`/me/tracks?limit=50&offset=${offset}`);
+        if (res.status === 403) {
+            handleScope403();
+            return null;
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        for (const item of data.items || []) {
+            const track = normalizeTrack(item.track);
+            if (track && !isBanned(track)) {
+                tracks.push(track);
+                likedCache[trackId(track)] = true;
+            }
+        }
+        if (!data.next) break;
+    }
+    likedTracksCache = { fetchedAt: Date.now(), tracks };
+    return tracks;
+}
+
+async function likedTracksForMood(mood) {
+    if (!settings.preferLiked) return [];
+    status(t('checkingLiked'));
+    try {
+        const tracks = await getLikedTracks();
+        if (!tracks) return [];
+        const ranked = tracks
+            .filter(track => !isBanned(track))
+            .map(track => ({ ...track, likedScore: scoreLikedTrack(track, mood) }))
+            .filter(track => track.likedScore >= 18)
+            .sort((a, b) => b.likedScore - a.likedScore || b.popularity - a.popularity)
+            .slice(0, 10);
+        if (!ranked.length) status(t('likedNoMatch'));
+        return ranked;
+    } catch (err) {
+        status(t('likedLoadFailed', { message: err.message }));
+        return [];
+    }
 }
 
 async function playTrack(track) {
@@ -542,7 +649,7 @@ async function toggleLike() {
         if (res.status === 403) return handleScope403();
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         likedCache[id] = !isLiked;
-        $('.rvm-btn-like').toggleClass('fa-solid', !isLiked).toggleClass('fa-regular', isLiked);
+        $('.rvm-btn-like').toggleClass('rvm-liked', !isLiked);
         status(t(isLiked ? 'unliked' : 'liked'));
     } catch (err) {
         status(t('error', { message: err.message }));
@@ -557,7 +664,7 @@ async function refreshLikeUi() {
         if (!res.ok) return;
         const [liked] = await res.json();
         likedCache[id] = !!liked;
-        $('.rvm-btn-like').toggleClass('fa-solid', !!liked).toggleClass('fa-regular', !liked);
+        $('.rvm-btn-like').toggleClass('rvm-liked', !!liked);
     } catch { /* non-critical */ }
 }
 
@@ -938,8 +1045,13 @@ async function analyzeAndPlay({ force = false, hint = '' } = {}) {
             status(t('vibeUnchanged', { mood: mood.mood }));
             return;
         }
-        status(t('searching', { query: mood.query }));
-        const results = await searchTracks(mood.query);
+        let results = await likedTracksForMood(mood);
+        if (results.length) {
+            mood.reason = mood.reason ? `${mood.reason} · ${t('likedSource')}` : t('likedSource');
+        } else {
+            status(t('searching', { query: mood.query }));
+            results = await searchTracks(mood.query);
+        }
         if (!results.length) {
             status(t('noTracks', { query: mood.query }));
             return;
@@ -977,23 +1089,45 @@ async function analyzeAndPlay({ force = false, hint = '' } = {}) {
 
 // ------------------------------------------------------------- chat block ---
 
+function findChatBlockTarget() {
+    let target = $('#chat .mes[is_user="false"]').not('[is_system="true"]').last().find('.mes_text').first();
+    if (target.length) return target;
+
+    target = $('#chat .mes').filter(function () {
+        const el = $(this);
+        const isUser = String(el.attr('is_user') || '').toLowerCase() === 'true'
+            || el.hasClass('user_mes')
+            || el.hasClass('is_user');
+        const isSystem = String(el.attr('is_system') || '').toLowerCase() === 'true'
+            || el.hasClass('system_mes')
+            || el.hasClass('system');
+        return !isUser && !isSystem;
+    }).last().find('.mes_text, .mes_text_pre, .mes_content').first();
+    if (target.length) return target;
+
+    return $('#chat .mes_text, #chat .mes_text_pre, #chat .mes_content').last();
+}
+
 function renderBlock(note = '') {
     if (!settings.keepOldBlocks) {
         $('#chat .rvm-block').remove();
     }
     if (!settings.inlineBlock || !currentTrack) return;
-    const target = $('#chat .mes[is_user="false"]').not('[is_system="true"]').last().find('.mes_text');
-    if (!target.length) return;
+    const target = findChatBlockTarget();
+    if (!target.length) {
+        console.warn(LOG, 'could not find a chat message target for the now-playing block');
+        return;
+    }
     target.find('.rvm-block').remove();
-    const t = currentTrack;
-    const m = currentMood;
+    const track = currentTrack;
+    const mood = currentMood;
     const html = `
     <div class="rvm-block">
-        ${t.image ? `<img class="rvm-art" src="${esc(t.image)}" alt="">` : ''}
+        ${track.image ? `<img class="rvm-art" src="${esc(track.image)}" alt="">` : ''}
         <div class="rvm-meta">
-            <div class="rvm-mood">♪ ${esc(m?.mood || t('moodDefault'))}${m?.reason ? ` — ${esc(m.reason)}` : ''}</div>
-            <a class="rvm-title" href="${esc(t.url)}" target="_blank" rel="noopener">${esc(t.name)}</a>
-            <div class="rvm-artist">${esc(t.artists)}</div>
+            <div class="rvm-mood">♪ ${esc(mood?.mood || t('moodDefault'))}${mood?.reason ? ` — ${esc(mood.reason)}` : ''}</div>
+            <a class="rvm-title" href="${esc(track.url)}" target="_blank" rel="noopener">${esc(track.name)}</a>
+            <div class="rvm-artist">${esc(track.artists)}</div>
             ${note ? `<div class="rvm-note">${esc(note)}</div>` : ''}
         </div>
         <div class="rvm-controls">
@@ -1003,7 +1137,7 @@ function renderBlock(note = '') {
                 <div class="rvm-btn rvm-btn-reroll fa-solid fa-arrows-rotate" title="${esc(t('ttReroll'))}"></div>
             </div>
             <div class="rvm-ctrl-row">
-                <div class="rvm-btn rvm-btn-like fa-regular fa-heart" title="${esc(t('ttLike'))}"></div>
+                <div class="rvm-btn rvm-btn-like fa-solid fa-heart" title="${esc(t('ttLike'))}"></div>
                 <div class="rvm-btn rvm-btn-ban fa-solid fa-ban" title="${esc(t('ttBan'))}"></div>
                 <input type="range" class="rvm-vol" min="0" max="100" value="${currentVolume}" title="${esc(t('ttVolume'))}">
             </div>
@@ -1064,6 +1198,7 @@ function buildSettingsHtml() {
                 <input id="rvm_interval" type="number" min="1" max="20" class="text_pole">
             </label>
             <hr>
+            <label class="checkbox_label"><input id="rvm_prefer_liked" type="checkbox"><span>${esc(t('sPreferLiked'))}</span></label>
             <label class="checkbox_label"><input id="rvm_inject" type="checkbox"><span>${esc(t('sInject'))}</span></label>
             <label>${esc(t('sInjectDepth'))}
                 <input id="rvm_inject_depth" type="number" min="0" max="20" class="text_pole">
@@ -1126,6 +1261,7 @@ function addSettingsUi() {
     $('#rvm_client_id').val(settings.clientId).on('input', function () { settings.clientId = this.value.trim(); save(); });
     $('#rvm_redirect').val(settings.redirectUri).on('input', function () { settings.redirectUri = this.value.trim(); save(); });
 
+    $('#rvm_prefer_liked').prop('checked', settings.preferLiked).on('change', function () { settings.preferLiked = this.checked; save(); });
     $('#rvm_inject').prop('checked', settings.injectEnabled).on('change', function () { settings.injectEnabled = this.checked; save(); updateInject(); });
     $('#rvm_inject_depth').val(settings.injectDepth).on('input', function () { settings.injectDepth = Math.max(0, Number(this.value) || 0); save(); updateInject(); });
     $('#rvm_inject_template').val(settings.injectTemplate).on('input', function () { settings.injectTemplate = this.value; save(); updateInject(); });

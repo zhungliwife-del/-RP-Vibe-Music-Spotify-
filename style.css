@@ -110,3 +110,12 @@
     width: 100%;
     box-sizing: border-box;
 }
+
+.rvm-btn-like:not(.rvm-liked) {
+    opacity: 0.45;
+}
+
+.rvm-btn-like.rvm-liked {
+    color: #1db954;
+    opacity: 1;
+}
