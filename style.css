@@ -56,10 +56,8 @@
 .rvm-controls {
     grid-column: 1 / -1;
     display: flex;
-    align-items: center;
-    justify-content: space-between;
+    flex-direction: column;
     gap: 8px;
-    flex-wrap: wrap;
 }
 
 .rvm-ctrl-row {
@@ -95,34 +93,26 @@
     cursor: wait;
 }
 
-.rvm-btn-like:not(.rvm-liked) {
-    opacity: 0.5;
-}
-
-.rvm-btn-like.rvm-liked {
-    color: #1db954;
-    opacity: 1;
-}
-
-.rvm-volume {
-    display: flex;
+.rvm-seekbar {
+    display: grid;
+    grid-template-columns: 42px minmax(120px, 1fr) 42px;
     align-items: center;
-    gap: 6px;
-    min-width: 142px;
+    gap: 8px;
     margin: 0;
-    opacity: 0.9;
+    opacity: 0.92;
 }
 
-.rvm-vol {
-    width: 86px;
+.rvm-seek {
+    width: 100%;
     margin: 0;
     padding: 0;
 }
 
-.rvm-vol-value {
-    min-width: 34px;
+.rvm-time-current,
+.rvm-time-total {
     font-variant-numeric: tabular-nums;
     opacity: 0.85;
+    text-align: center;
 }
 
 .rvm-ext-settings .inline-drawer-content {

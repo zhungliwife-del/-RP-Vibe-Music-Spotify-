@@ -36,12 +36,10 @@ inside the chat** — with album art, mood label, and playback controls.
 - 🎧 **Characters hear the music** — the currently playing track (name, artist, mood)
   is injected into the prompt, so characters can naturally react to the soundtrack of
   the scene. Template and injection depth are configurable; off with one checkbox.
-- ❤️ **Like & auto-playlist** — a heart button on the in-chat block saves/removes the
-  track from Liked Songs, and every played track is automatically collected into a
-  private **"RP Vibe Music"** playlist — the permanent soundtrack of your roleplay.
-- 🔊 **Scene-aware volume** — a volume slider right on the in-chat block, plus auto
-  volume driven by the scene energy the LLM reports: battles get louder, cozy and
-  sentimental scenes get quieter.
+- 📼 **Track seek bar** — the in-chat block shows the current playback position and lets
+  you drag the track backward or forward without opening Spotify.
+- 💿 **Auto-playlist** — every played track is automatically collected into a private
+  **"RP Vibe Music"** playlist — the permanent soundtrack of your roleplay.
 - 🚫 **Ban list** — a ban button on the block: never hear that track again (the search
   filters it out permanently; clear the list in settings).
 - 🎚️ **Soft switch** (optional) — when the vibe changes, let the current track finish
@@ -79,12 +77,13 @@ inside the chat** — with album art, mood label, and playback controls.
 
 ## Updating from v1.3 or older
 
-The like/playlist features need extra Spotify permissions. After updating, press
-**Connect Spotify** once more to re-authorize — everything else keeps working as before.
+The auto-playlist feature needs Spotify playlist permissions. After updating from an old
+version, press **Connect Spotify** once more if playlist saving fails — everything else
+keeps working as before.
 
 ## Notes & limitations
 
-- **Starting/pausing playback requires Spotify Premium** (Spotify API limitation).
+- **Starting/pausing/seeking playback requires Spotify Premium** (Spotify API limitation).
   Without Premium the info block still appears — tap the track title to open it in Spotify.
 - Mood analysis uses your currently connected LLM via a quiet prompt, so each analysis
   costs one small generation. Tune "Analyze every N character messages" to taste.
