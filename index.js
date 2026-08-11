@@ -6,7 +6,8 @@ const MODULE = 'rp_vibe_music';
 const LOG = '[RP Vibe Music]';
 const STATE_KEY = 'rvm_oauth_state';
 const VERIFIER_KEY = 'rvm_pkce_verifier';
-const SCOPES = 'user-read-playback-state user-modify-playback-state user-read-currently-playing';
+const SCOPES = 'user-read-playback-state user-modify-playback-state user-read-currently-playing user-library-read user-library-modify playlist-read-private playlist-modify-private playlist-modify-public';
+const INJECT_ID = 'rp_vibe_music_now_playing';
 
 const defaultSettings = {
     language: 'auto', // 'auto' (follow SillyTavern locale) | 'en' | 'ru'
@@ -20,6 +21,15 @@ const defaultSettings = {
     moodEngine: 'auto', // 'auto' (LLM → keyword fallback) | 'llm' | 'keywords'
     messageInterval: 2,
     minSecondsBetween: 45,
+    injectEnabled: true,
+    injectDepth: 1,
+    injectTemplate: '',
+    autoPlaylist: true,
+    playlistId: '',
+    playlistUris: [],
+    autoVolume: true,
+    smoothSwitch: false,
+    bannedUris: [],
     clientId: '',
     redirectUri: '',
     refreshToken: '',
@@ -36,6 +46,9 @@ let currentTrack = null;   // { uri, name, artists, album, image, url }
 let currentMood = null;    // { mood, energy, query, reason }
 let searchResults = [];
 let searchIndex = 0;
+let currentVolume = 70;
+let likedCache = {};
+let scopeWarned = false;
 
 function getCtx() {
     return SillyTavern.getContext();
@@ -136,6 +149,26 @@ const LANGS = {
         sAnalyze: 'Analyze now',
         sHint: 'Playback control needs Spotify Premium. Use <code>/vibe</code> to re-analyze the scene, or <code>/vibe dark epic orchestral</code> to force a vibe.',
         slashHelp: 'Adapt Spotify music to the current RP scene. Optionally force a vibe: /vibe dark epic orchestral',
+        // new features
+        sInject: 'Character "hears" the music — inject now-playing into the prompt',
+        sInjectDepth: 'Injection depth (messages from the end)',
+        sInjectTemplate: 'Injection template ({{song}}, {{artist}}, {{album}}, {{mood}})',
+        injectDefault: '[Background music is playing right now: "{{song}}" by {{artist}} (mood: {{mood}}). Characters can hear it and may naturally react to it.]',
+        sAutoPlaylist: 'Save played tracks to the "RP Vibe Music" playlist in Spotify',
+        sAutoVolume: 'Auto volume by scene energy — battles louder, cozy scenes quieter',
+        sSmooth: 'Soft switch — let the current track finish, start the new vibe via the queue',
+        sBanned: 'Banned tracks: {count}',
+        sBanClear: 'Clear ban list',
+        banCleared: 'Ban list cleared.',
+        ttLike: 'Save to Liked Songs',
+        ttBan: 'Never play this track again',
+        ttVolume: 'Volume',
+        liked: 'Saved to Liked Songs ❤',
+        unliked: 'Removed from Liked Songs.',
+        bannedTrack: 'Banned: {name}. Picking another track…',
+        queuedNote: 'Queued — starts after the current track.',
+        queuedStatus: 'Queued next: {name} — {artists} ({mood})',
+        needReconnect: 'The new features need extra Spotify permissions — press "Connect Spotify" once to re-authorize.',
     },
     ru: {
         // statuses
@@ -203,6 +236,26 @@ const LANGS = {
         sAnalyze: 'Анализировать сейчас',
         sHint: 'Для управления воспроизведением нужен Spotify Premium. Команда <code>/vibe</code> — перечитать сцену, <code>/vibe dark epic orchestral</code> — задать вайб вручную.',
         slashHelp: 'Подстроить музыку Spotify под текущую RP-сцену. Можно задать вайб вручную: /vibe dark epic orchestral',
+        // new features
+        sInject: 'Персонаж «слышит» музыку — вставлять «сейчас играет» в промпт',
+        sInjectDepth: 'Глубина вставки (сообщений от конца)',
+        sInjectTemplate: 'Шаблон вставки ({{song}}, {{artist}}, {{album}}, {{mood}})',
+        injectDefault: '[Прямо сейчас фоном играет музыка: «{{song}}» — {{artist}} (настроение: {{mood}}). Персонажи её слышат и могут естественно на неё реагировать.]',
+        sAutoPlaylist: 'Сохранять сыгранные треки в плейлист «RP Vibe Music» в Spotify',
+        sAutoVolume: 'Автогромкость по энергии сцены — бои громче, уютные сцены тише',
+        sSmooth: 'Мягкая смена — дать треку доиграть, новый вайб через очередь',
+        sBanned: 'Забанено треков: {count}',
+        sBanClear: 'Очистить бан-лист',
+        banCleared: 'Бан-лист очищен.',
+        ttLike: 'Сохранить в «Любимые треки»',
+        ttBan: 'Больше никогда не играть этот трек',
+        ttVolume: 'Громкость',
+        liked: 'Сохранено в «Любимые треки» ❤',
+        unliked: 'Убрано из «Любимых треков».',
+        bannedTrack: 'Забанен: {name}. Подбираю другой трек…',
+        queuedNote: 'В очереди — начнётся после текущего трека.',
+        queuedStatus: 'Следующим в очереди: {name} — {artists} ({mood})',
+        needReconnect: 'Новым функциям нужны дополнительные права Spotify — нажмите «Подключить Spotify» ещё раз.',
     },
 };
 
@@ -391,7 +444,7 @@ async function searchTracks(query) {
         image: t.album?.images?.[1]?.url || t.album?.images?.[0]?.url || '',
         url: t.external_urls?.spotify || '',
         popularity: Number(t.popularity) || 0,
-    }));
+    })).filter(track => !(settings.bannedUris || []).includes(track.uri));
     return rankTracks(tracks);
 }
 
@@ -452,6 +505,7 @@ async function togglePlayback() {
         $('.rvm-btn-toggle')
             .toggleClass('fa-play', !isPlaying)
             .toggleClass('fa-pause', isPlaying);
+        updateInject();
     } catch (err) {
         status(t('error', { message: err.message }));
     }
@@ -462,8 +516,169 @@ async function nextTrack() {
     searchIndex = (searchIndex + 1) % searchResults.length;
     currentTrack = searchResults[searchIndex];
     const result = await playTrack(currentTrack);
+    afterPlay(result.ok);
     renderBlock(result.ok ? '' : result.note);
     status(result.ok ? t('nowPlaying', { name: currentTrack.name, artists: currentTrack.artists }) : result.note);
+}
+
+// ----------------------------------------------- like / playlist / volume ---
+
+function handleScope403() {
+    if (scopeWarned) return;
+    scopeWarned = true;
+    status(t('needReconnect'));
+}
+
+function trackId(track) {
+    return String(track?.uri || '').split(':').pop();
+}
+
+async function toggleLike() {
+    if (!currentTrack) return;
+    const id = trackId(currentTrack);
+    try {
+        const isLiked = likedCache[id] === true;
+        const res = await api(`/me/tracks?ids=${encodeURIComponent(id)}`, { method: isLiked ? 'DELETE' : 'PUT' });
+        if (res.status === 403) return handleScope403();
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        likedCache[id] = !isLiked;
+        $('.rvm-btn-like').toggleClass('fa-solid', !isLiked).toggleClass('fa-regular', isLiked);
+        status(t(isLiked ? 'unliked' : 'liked'));
+    } catch (err) {
+        status(t('error', { message: err.message }));
+    }
+}
+
+async function refreshLikeUi() {
+    if (!currentTrack) return;
+    const id = trackId(currentTrack);
+    try {
+        const res = await api(`/me/tracks/contains?ids=${encodeURIComponent(id)}`);
+        if (!res.ok) return;
+        const [liked] = await res.json();
+        likedCache[id] = !!liked;
+        $('.rvm-btn-like').toggleClass('fa-solid', !!liked).toggleClass('fa-regular', !liked);
+    } catch { /* non-critical */ }
+}
+
+async function ensurePlaylist() {
+    if (settings.playlistId) return settings.playlistId;
+    const meRes = await api('/me');
+    if (meRes.status === 403) { handleScope403(); return ''; }
+    if (!meRes.ok) return '';
+    const me = await meRes.json();
+    const res = await api(`/users/${encodeURIComponent(me.id)}/playlists`, {
+        method: 'POST',
+        body: JSON.stringify({
+            name: 'RP Vibe Music',
+            public: false,
+            description: 'Soundtrack of your roleplay — added automatically by the RP Vibe Music SillyTavern extension.',
+        }),
+    });
+    if (res.status === 403) { handleScope403(); return ''; }
+    if (!res.ok) return '';
+    const playlist = await res.json();
+    settings.playlistId = playlist.id;
+    save();
+    return playlist.id;
+}
+
+async function addToPlaylist(track) {
+    if (!settings.autoPlaylist || !track?.uri) return;
+    if ((settings.playlistUris || []).includes(track.uri)) return;
+    try {
+        let playlistId = await ensurePlaylist();
+        if (!playlistId) return;
+        let res = await api(`/playlists/${playlistId}/tracks`, { method: 'POST', body: JSON.stringify({ uris: [track.uri] }) });
+        if (res.status === 404) {
+            // Playlist was deleted by the user — recreate it once.
+            settings.playlistId = '';
+            save();
+            playlistId = await ensurePlaylist();
+            if (!playlistId) return;
+            res = await api(`/playlists/${playlistId}/tracks`, { method: 'POST', body: JSON.stringify({ uris: [track.uri] }) });
+        }
+        if (res.status === 403) return handleScope403();
+        if (!res.ok) return;
+        settings.playlistUris = [...(settings.playlistUris || []), track.uri].slice(-500);
+        save();
+    } catch (err) {
+        console.warn(LOG, 'playlist add failed:', err);
+    }
+}
+
+async function setVolume(volume) {
+    currentVolume = Math.max(0, Math.min(100, Math.round(Number(volume) || 0)));
+    $('.rvm-vol').val(currentVolume);
+    try {
+        const res = await api(`/me/player/volume?volume_percent=${currentVolume}`, { method: 'PUT' });
+        if (res.status === 403) status(t('needPremium'));
+    } catch (err) {
+        console.warn(LOG, 'volume change failed:', err);
+    }
+}
+
+function applyAutoVolume(energy) {
+    if (!settings.autoVolume) return;
+    const e = Math.max(1, Math.min(10, Number(energy) || 5));
+    setVolume(30 + e * 6); // energy 1..10 → volume 36..90
+}
+
+async function queueTrack(track) {
+    try {
+        const res = await api(`/me/player/queue?uri=${encodeURIComponent(track.uri)}`, { method: 'POST' });
+        return res.ok || res.status === 204;
+    } catch {
+        return false;
+    }
+}
+
+async function banTrack() {
+    if (!currentTrack) return;
+    settings.bannedUris = [...new Set([...(settings.bannedUris || []), currentTrack.uri])];
+    save();
+    updateBanCountUi();
+    status(t('bannedTrack', { name: currentTrack.name }));
+    searchResults = searchResults.filter(track => track.uri !== currentTrack.uri);
+    if (searchResults.length) {
+        searchIndex = searchIndex % searchResults.length;
+        currentTrack = searchResults[searchIndex];
+        const result = await playTrack(currentTrack);
+        afterPlay(result.ok);
+        renderBlock(result.ok ? '' : result.note);
+        if (result.ok) status(t('nowPlaying', { name: currentTrack.name, artists: currentTrack.artists }));
+    } else {
+        currentTrack = null;
+        updateInject();
+        analyzeAndPlay({ force: true });
+    }
+}
+
+// ---------------------------------------------------------- prompt inject ---
+
+function updateInject() {
+    const ctx = getCtx();
+    if (typeof ctx.setExtensionPrompt !== 'function') return;
+    const type = ctx.extension_prompt_types?.IN_CHAT ?? 1;
+    const role = ctx.extension_prompt_roles?.SYSTEM ?? 0;
+    if (!settings.injectEnabled || !currentTrack || !isPlaying) {
+        ctx.setExtensionPrompt(INJECT_ID, '', type, 0);
+        return;
+    }
+    const template = String(settings.injectTemplate || '').trim() || t('injectDefault');
+    const text = template
+        .replaceAll('{{song}}', currentTrack.name)
+        .replaceAll('{{artist}}', currentTrack.artists)
+        .replaceAll('{{album}}', currentTrack.album || '')
+        .replaceAll('{{mood}}', currentMood?.mood || t('moodDefault'));
+    ctx.setExtensionPrompt(INJECT_ID, text, type, Math.max(0, Number(settings.injectDepth) || 0), false, role);
+}
+
+function afterPlay(ok) {
+    updateInject();
+    if (!ok) return;
+    applyAutoVolume(currentMood?.energy);
+    addToPlaylist(currentTrack);
 }
 
 // ------------------------------------------------------------ mood engine ---
@@ -729,13 +944,25 @@ async function analyzeAndPlay({ force = false, hint = '' } = {}) {
             status(t('noTracks', { query: mood.query }));
             return;
         }
+        const newTrack = results[0];
+        const smooth = settings.smoothSwitch && !force && isPlaying && currentTrack && currentTrack.uri !== newTrack.uri;
         currentMood = mood;
         searchResults = results;
         searchIndex = 0;
-        currentTrack = results[0];
+        if (smooth && await queueTrack(newTrack)) {
+            currentTrack = newTrack;
+            lastAnalysisAt = Date.now();
+            aiMessageCounter = 0;
+            afterPlay(true);
+            renderBlock(t('queuedNote'));
+            status(t('queuedStatus', { name: newTrack.name, artists: newTrack.artists, mood: mood.mood }));
+            return;
+        }
+        currentTrack = newTrack;
         const result = await playTrack(currentTrack);
         lastAnalysisAt = Date.now();
         aiMessageCounter = 0;
+        afterPlay(result.ok);
         renderBlock(result.ok ? '' : result.note);
         status(result.ok
             ? t('nowPlayingMood', { name: currentTrack.name, artists: currentTrack.artists, mood: mood.mood })
@@ -770,12 +997,20 @@ function renderBlock(note = '') {
             ${note ? `<div class="rvm-note">${esc(note)}</div>` : ''}
         </div>
         <div class="rvm-controls">
-            <div class="rvm-btn rvm-btn-toggle fa-solid ${isPlaying ? 'fa-pause' : 'fa-play'}" title="${esc(t('ttToggle'))}"></div>
-            <div class="rvm-btn rvm-btn-next fa-solid fa-forward" title="${esc(t('ttNext'))}"></div>
-            <div class="rvm-btn rvm-btn-reroll fa-solid fa-arrows-rotate" title="${esc(t('ttReroll'))}"></div>
+            <div class="rvm-ctrl-row">
+                <div class="rvm-btn rvm-btn-toggle fa-solid ${isPlaying ? 'fa-pause' : 'fa-play'}" title="${esc(t('ttToggle'))}"></div>
+                <div class="rvm-btn rvm-btn-next fa-solid fa-forward" title="${esc(t('ttNext'))}"></div>
+                <div class="rvm-btn rvm-btn-reroll fa-solid fa-arrows-rotate" title="${esc(t('ttReroll'))}"></div>
+            </div>
+            <div class="rvm-ctrl-row">
+                <div class="rvm-btn rvm-btn-like fa-regular fa-heart" title="${esc(t('ttLike'))}"></div>
+                <div class="rvm-btn rvm-btn-ban fa-solid fa-ban" title="${esc(t('ttBan'))}"></div>
+                <input type="range" class="rvm-vol" min="0" max="100" value="${currentVolume}" title="${esc(t('ttVolume'))}">
+            </div>
         </div>
     </div>`;
     target.append(html);
+    refreshLikeUi();
 }
 
 // ----------------------------------------------------------------- events ---
@@ -829,6 +1064,21 @@ function buildSettingsHtml() {
                 <input id="rvm_interval" type="number" min="1" max="20" class="text_pole">
             </label>
             <hr>
+            <label class="checkbox_label"><input id="rvm_inject" type="checkbox"><span>${esc(t('sInject'))}</span></label>
+            <label>${esc(t('sInjectDepth'))}
+                <input id="rvm_inject_depth" type="number" min="0" max="20" class="text_pole">
+            </label>
+            <label>${esc(t('sInjectTemplate'))}
+                <textarea id="rvm_inject_template" class="text_pole" rows="2" placeholder="${esc(t('injectDefault'))}"></textarea>
+            </label>
+            <label class="checkbox_label"><input id="rvm_playlist" type="checkbox"><span>${esc(t('sAutoPlaylist'))}</span></label>
+            <label class="checkbox_label"><input id="rvm_autovol" type="checkbox"><span>${esc(t('sAutoVolume'))}</span></label>
+            <label class="checkbox_label"><input id="rvm_smooth" type="checkbox"><span>${esc(t('sSmooth'))}</span></label>
+            <div class="rvm-btnrow">
+                <span id="rvm_ban_count" class="rvm-status"></span>
+                <div id="rvm_ban_clear" class="menu_button">${esc(t('sBanClear'))}</div>
+            </div>
+            <hr>
             <label>Spotify Client ID
                 <input id="rvm_client_id" type="text" class="text_pole" placeholder="${esc(t('sClientIdPh'))}">
             </label>
@@ -876,14 +1126,33 @@ function addSettingsUi() {
     $('#rvm_client_id').val(settings.clientId).on('input', function () { settings.clientId = this.value.trim(); save(); });
     $('#rvm_redirect').val(settings.redirectUri).on('input', function () { settings.redirectUri = this.value.trim(); save(); });
 
+    $('#rvm_inject').prop('checked', settings.injectEnabled).on('change', function () { settings.injectEnabled = this.checked; save(); updateInject(); });
+    $('#rvm_inject_depth').val(settings.injectDepth).on('input', function () { settings.injectDepth = Math.max(0, Number(this.value) || 0); save(); updateInject(); });
+    $('#rvm_inject_template').val(settings.injectTemplate).on('input', function () { settings.injectTemplate = this.value; save(); updateInject(); });
+    $('#rvm_playlist').prop('checked', settings.autoPlaylist).on('change', function () { settings.autoPlaylist = this.checked; save(); });
+    $('#rvm_autovol').prop('checked', settings.autoVolume).on('change', function () { settings.autoVolume = this.checked; save(); });
+    $('#rvm_smooth').prop('checked', settings.smoothSwitch).on('change', function () { settings.smoothSwitch = this.checked; save(); });
+    $('#rvm_ban_clear').on('click', () => { settings.bannedUris = []; save(); updateBanCountUi(); status(t('banCleared')); });
+    updateBanCountUi();
+
     $('#rvm_connect').on('click', connectSpotify);
     $('#rvm_disconnect').on('click', disconnectSpotify);
     $('#rvm_analyze').on('click', () => analyzeAndPlay({ force: true }));
+}
 
-    // Inline block controls (delegated — blocks are created dynamically).
+function updateBanCountUi() {
+    $('#rvm_ban_count').text(t('sBanned', { count: (settings.bannedUris || []).length }));
+}
+
+// Inline block controls (delegated — blocks are created dynamically).
+// Bound once at init, NOT in addSettingsUi, which re-runs on language change.
+function bindBlockControls() {
     $(document).on('click', '.rvm-btn-toggle', togglePlayback);
     $(document).on('click', '.rvm-btn-next', nextTrack);
     $(document).on('click', '.rvm-btn-reroll', () => analyzeAndPlay({ force: true }));
+    $(document).on('click', '.rvm-btn-like', toggleLike);
+    $(document).on('click', '.rvm-btn-ban', banTrack);
+    $(document).on('change', '.rvm-vol', function () { setVolume(this.value); });
 }
 
 function updateConnectionUi() {
@@ -937,6 +1206,7 @@ jQuery(async () => {
         settings.redirectUri = defaultRedirectUri();
     }
     addSettingsUi();
+    bindBlockControls();
     await handleAuthCallback();
     updateConnectionUi();
 

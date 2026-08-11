@@ -33,6 +33,19 @@ inside the chat** — with album art, mood label, and playback controls.
 - ⚙️ Configurable: auto mode on/off, analysis frequency, instrumental preference,
   keep or move old music blocks.
 
+- 🎧 **Characters hear the music** — the currently playing track (name, artist, mood)
+  is injected into the prompt, so characters can naturally react to the soundtrack of
+  the scene. Template and injection depth are configurable; off with one checkbox.
+- ❤️ **Like & auto-playlist** — a heart button on the in-chat block saves the track to
+  your Liked Songs, and every played track is automatically collected into a private
+  **"RP Vibe Music"** playlist in your Spotify — the permanent soundtrack of your roleplay.
+- 🔊 **Scene-aware volume** — a volume slider right on the in-chat block, plus auto
+  volume driven by the scene energy the LLM reports: battles get louder, cozy and
+  sentimental scenes get quieter.
+- 🚫 **Ban list** — a ban button on the block: never hear that track again (the search
+  filters it out permanently; clear the list in settings).
+- 🎚️ **Soft switch** (optional) — when the vibe changes, let the current track finish
+  and start the new one via the Spotify queue instead of cutting it off mid-note.
 - 🌍 **English / Русский интерфейс** — the whole UI (settings panel, statuses,
   in-chat block, mood labels) is available in English and Russian. Default is
   **Auto** (follows your SillyTavern language); switch manually via the
@@ -60,6 +73,11 @@ inside the chat** — with album art, mood label, and playback controls.
    verify the Redirect URI field matches step 1, press **Connect Spotify** and approve.
 4. Open Spotify on any device (desktop, phone, web player) so there is an active device.
 5. Roleplay. The music follows.
+
+## Updating from v1.3 or older
+
+The like/playlist features need extra Spotify permissions. After updating, press
+**Connect Spotify** once more to re-authorize — everything else keeps working as before.
 
 ## Notes & limitations
 

@@ -87,3 +87,26 @@
     display: block;
     margin: 4px 0;
 }
+
+.rvm-controls {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+}
+
+.rvm-ctrl-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.rvm-vol {
+    width: 64px;
+    margin: 0;
+    padding: 0;
+}
+
+.rvm-ext-settings textarea.text_pole {
+    width: 100%;
+    box-sizing: border-box;
+}
