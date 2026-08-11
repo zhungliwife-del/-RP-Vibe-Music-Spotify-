@@ -36,11 +36,9 @@ inside the chat** — with album art, mood label, and playback controls.
 - 🎧 **Characters hear the music** — the currently playing track (name, artist, mood)
   is injected into the prompt, so characters can naturally react to the soundtrack of
   the scene. Template and injection depth are configurable; off with one checkbox.
-- ❤️ **Liked Songs picker + auto-playlist** — the extension can first try matching
-  tracks from your Spotify **Liked Songs** before falling back to global Spotify search.
-  A heart button on the in-chat block saves/removes the track from Liked Songs, and every
-  played track is automatically collected into a private **"RP Vibe Music"** playlist —
-  the permanent soundtrack of your roleplay.
+- ❤️ **Like & auto-playlist** — a heart button on the in-chat block saves/removes the
+  track from Liked Songs, and every played track is automatically collected into a
+  private **"RP Vibe Music"** playlist — the permanent soundtrack of your roleplay.
 - 🔊 **Scene-aware volume** — a volume slider right on the in-chat block, plus auto
   volume driven by the scene energy the LLM reports: battles get louder, cozy and
   sentimental scenes get quieter.
@@ -48,6 +46,9 @@ inside the chat** — with album art, mood label, and playback controls.
   filters it out permanently; clear the list in settings).
 - 🎚️ **Soft switch** (optional) — when the vibe changes, let the current track finish
   and start the new one via the Spotify queue instead of cutting it off mid-note.
+- 🆕 **Fresh / balanced / any-era music picker** — the default **Fresh mix** biases
+  Spotify search toward 2015+ tracks, penalizes overused old hits, and avoids repeating
+  the same tracks/artists in one session. Switch to Balanced or Any era if you want classics.
 - 🌍 **English / Русский интерфейс** — the whole UI (settings panel, statuses,
   in-chat block, mood labels) is available in English and Russian. Default is
   **Auto** (follows your SillyTavern language); switch manually via the
@@ -78,9 +79,8 @@ inside the chat** — with album art, mood label, and playback controls.
 
 ## Updating from v1.3 or older
 
-The Liked Songs picker and like/playlist features need extra Spotify permissions.
-After updating, press **Connect Spotify** once more to re-authorize — everything else
-keeps working as before.
+The like/playlist features need extra Spotify permissions. After updating, press
+**Connect Spotify** once more to re-authorize — everything else keeps working as before.
 
 ## Notes & limitations
 

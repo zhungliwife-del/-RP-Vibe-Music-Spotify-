@@ -17,6 +17,7 @@ const defaultSettings = {
     keepOldBlocks: false,
     preferInstrumental: true, // legacy, superseded by musicStyle
     musicStyle: 'auto', // 'auto' | 'modern' | 'soundtrack'
+    freshness: 'fresh', // 'fresh' | 'balanced' | 'any'
     useFandom: true,
     moodEngine: 'auto', // 'auto' (LLM → keyword fallback) | 'llm' | 'keywords'
     messageInterval: 2,
@@ -24,7 +25,6 @@ const defaultSettings = {
     injectEnabled: true,
     injectDepth: 1,
     injectTemplate: '',
-    preferLiked: true,
     autoPlaylist: true,
     playlistId: '',
     playlistUris: [],
@@ -49,7 +49,10 @@ let searchResults = [];
 let searchIndex = 0;
 let currentVolume = 70;
 let likedCache = {};
-let likedTracksCache = { fetchedAt: 0, tracks: [] };
+let recentTrackUris = [];
+let recentArtists = [];
+let volumeTimer = 0;
+let controlBusy = false;
 let scopeWarned = false;
 
 function getCtx() {
@@ -127,6 +130,10 @@ const LANGS = {
         ttReroll: 'Re-analyze the scene',
         // settings UI
         sTitle: '🎵 RP Vibe Music (Spotify)',
+        sSectionMain: 'Main',
+        sSectionMusic: 'Music choice',
+        sSectionPrompt: 'Character reactions',
+        sSectionSpotify: 'Spotify connection',
         sLanguage: 'Language / Язык',
         sLangAuto: 'Auto (SillyTavern language)',
         sEnabled: 'Enabled',
@@ -138,6 +145,10 @@ const LANGS = {
         sStyleAuto: 'Auto — famous songs when they fit, cinematic otherwise',
         sStyleModern: 'Modern popular — rock / rap / metal / pop with vocals',
         sStyleSoundtrack: 'Instrumental / soundtrack only',
+        sFreshness: 'Track freshness',
+        sFreshnessFresh: 'Fresh mix — prefer 2015+ and avoid overused classics',
+        sFreshnessBalanced: 'Balanced — modern + proven tracks',
+        sFreshnessAny: 'Any era — classics allowed',
         sEngine: 'Mood engine',
         sEngineAuto: 'LLM with keyword fallback (default)',
         sEngineLlm: 'LLM only',
@@ -154,9 +165,8 @@ const LANGS = {
         // new features
         sInject: 'Character "hears" the music — inject now-playing into the prompt',
         sInjectDepth: 'Injection depth (messages from the end)',
-        sInjectTemplate: 'Injection template ({{song}}, {{artist}}, {{album}}, {{mood}})',
+        sInjectTemplate: 'Prompt injection template ({{song}}, {{artist}}, {{album}}, {{mood}})',
         injectDefault: '[Background music is playing right now: "{{song}}" by {{artist}} (mood: {{mood}}). Characters can hear it and may naturally react to it.]',
-        sPreferLiked: 'First try matching music from your Liked Songs',
         sAutoPlaylist: 'Save played tracks to the "RP Vibe Music" playlist in Spotify',
         sAutoVolume: 'Auto volume by scene energy — battles louder, cozy scenes quieter',
         sSmooth: 'Soft switch — let the current track finish, start the new vibe via the queue',
@@ -171,10 +181,8 @@ const LANGS = {
         bannedTrack: 'Banned: {name}. Picking another track…',
         queuedNote: 'Queued — starts after the current track.',
         queuedStatus: 'Queued next: {name} — {artists} ({mood})',
-        checkingLiked: 'Checking your Liked Songs for this vibe…',
-        likedNoMatch: 'No matching Liked Songs for this vibe — searching Spotify.',
-        likedSource: 'Liked Songs',
-        likedLoadFailed: 'Could not read Liked Songs ({message}) — searching Spotify.',
+        volumeSet: 'Volume: {volume}%',
+        volumeFailed: 'Could not change volume (HTTP {status}). Try an active desktop/web Spotify device.',
         needReconnect: 'The new features need extra Spotify permissions — press "Connect Spotify" once to re-authorize.',
     },
     ru: {
@@ -219,6 +227,10 @@ const LANGS = {
         ttReroll: 'Проанализировать сцену заново',
         // settings UI
         sTitle: '🎵 RP Vibe Music (Spotify)',
+        sSectionMain: 'Главное',
+        sSectionMusic: 'Подбор музыки',
+        sSectionPrompt: 'Реакции персонажей',
+        sSectionSpotify: 'Подключение Spotify',
         sLanguage: 'Язык / Language',
         sLangAuto: 'Авто (язык SillyTavern)',
         sEnabled: 'Включено',
@@ -230,6 +242,10 @@ const LANGS = {
         sStyleAuto: 'Авто — известные песни, когда подходят, иначе кинематографичная музыка',
         sStyleModern: 'Современная популярная — рок / рэп / метал / поп с вокалом',
         sStyleSoundtrack: 'Только инструментал / саундтреки',
+        sFreshness: 'Свежесть треков',
+        sFreshnessFresh: 'Свежий микс — чаще 2015+ и меньше заезженной классики',
+        sFreshnessBalanced: 'Баланс — современные и проверенные треки',
+        sFreshnessAny: 'Любая эпоха — классика разрешена',
         sEngine: 'Движок настроения',
         sEngineAuto: 'LLM с запасным движком ключевых слов (по умолчанию)',
         sEngineLlm: 'Только LLM',
@@ -246,9 +262,8 @@ const LANGS = {
         // new features
         sInject: 'Персонаж «слышит» музыку — вставлять «сейчас играет» в промпт',
         sInjectDepth: 'Глубина вставки (сообщений от конца)',
-        sInjectTemplate: 'Шаблон вставки ({{song}}, {{artist}}, {{album}}, {{mood}})',
+        sInjectTemplate: 'Шаблон вставки в промпт ({{song}}, {{artist}}, {{album}}, {{mood}})',
         injectDefault: '[Прямо сейчас фоном играет музыка: «{{song}}» — {{artist}} (настроение: {{mood}}). Персонажи её слышат и могут естественно на неё реагировать.]',
-        sPreferLiked: 'Сначала подбирать музыку из «Любимых треков»',
         sAutoPlaylist: 'Сохранять сыгранные треки в плейлист «RP Vibe Music» в Spotify',
         sAutoVolume: 'Автогромкость по энергии сцены — бои громче, уютные сцены тише',
         sSmooth: 'Мягкая смена — дать треку доиграть, новый вайб через очередь',
@@ -263,10 +278,8 @@ const LANGS = {
         bannedTrack: 'Забанен: {name}. Подбираю другой трек…',
         queuedNote: 'В очереди — начнётся после текущего трека.',
         queuedStatus: 'Следующим в очереди: {name} — {artists} ({mood})',
-        checkingLiked: 'Проверяю «Любимые треки» под этот вайб…',
-        likedNoMatch: 'В «Любимых треках» нет подходящего совпадения — ищу по Spotify.',
-        likedSource: 'Любимые треки',
-        likedLoadFailed: 'Не удалось прочитать «Любимые треки» ({message}) — ищу по Spotify.',
+        volumeSet: 'Громкость: {volume}%',
+        volumeFailed: 'Не удалось изменить громкость (HTTP {status}). Попробуйте активный Spotify на компьютере или в веб-плеере.',
         needReconnect: 'Новым функциям нужны дополнительные права Spotify — нажмите «Подключить Spotify» ещё раз.',
     },
 };
@@ -445,6 +458,7 @@ function sanitizeQuery(query) {
 
 function normalizeTrack(t) {
     if (!t?.uri || t.type !== 'track') return null;
+    const releaseDate = t.album?.release_date || '';
     return {
         uri: t.uri,
         name: t.name,
@@ -453,6 +467,8 @@ function normalizeTrack(t) {
         image: t.album?.images?.[1]?.url || t.album?.images?.[0]?.url || '',
         url: t.external_urls?.spotify || '',
         popularity: Number(t.popularity) || 0,
+        releaseDate,
+        year: Number(String(releaseDate).slice(0, 4)) || 0,
     };
 }
 
@@ -460,109 +476,82 @@ function isBanned(track) {
     return (settings.bannedUris || []).includes(track?.uri);
 }
 
+function buildSearchQueries(query) {
+    const base = sanitizeQuery(query);
+    const queries = [];
+    const currentYear = new Date().getFullYear();
+    const fresh = (settings.freshness || 'fresh') === 'fresh' && settings.musicStyle !== 'soundtrack';
+    if (fresh) {
+        queries.push(`${base} year:2015-${currentYear}`);
+        queries.push(`${base} modern 2020s`);
+    }
+    if (settings.musicStyle === 'modern') {
+        queries.push(`${base} modern popular`);
+    }
+    queries.push(base);
+    return [...new Set(queries.map(q => q.trim()).filter(Boolean))];
+}
+
 async function searchTracks(query) {
+    const tracks = [];
+    const seen = new Set();
+    let lastStatus = 0;
     // Dev-mode apps are capped at limit=10 since Spotify's Feb 2026 API changes.
-    const res = await api(`/search?type=track&limit=10&q=${encodeURIComponent(query)}`);
-    if (!res.ok) throw new Error(t('searchFailed', { status: res.status, query }));
-    const data = await res.json();
-    const tracks = (data.tracks?.items || [])
-        .map(normalizeTrack)
-        .filter(track => track && !isBanned(track));
+    for (const q of buildSearchQueries(query)) {
+        const res = await api(`/search?type=track&limit=10&q=${encodeURIComponent(q)}`);
+        if (!res.ok) {
+            lastStatus = res.status;
+            continue;
+        }
+        const data = await res.json();
+        for (const item of data.tracks?.items || []) {
+            const track = normalizeTrack(item);
+            if (!track || isBanned(track) || seen.has(track.uri)) continue;
+            seen.add(track.uri);
+            tracks.push(track);
+        }
+    }
+    if (!tracks.length && lastStatus) throw new Error(t('searchFailed', { status: lastStatus, query }));
     return rankTracks(tracks);
 }
 
-// Rank by Spotify popularity so well-known/current tracks and official OSTs win
-// over obscure covers; heavily penalize karaoke/tribute junk.
+// Rank with a bias toward fresher tracks and recent variety. Popularity still matters,
+// but it no longer blindly promotes the same old legacy hits every time.
 const JUNK_RE = /karaoke|tribute|8[- ]?bit|lullab|music box|kids|parody|made famous|in the style of|караоке/i;
+function trackScore(track) {
+    const text = `${track.name} ${track.artists} ${track.album}`;
+    let score = track.popularity;
+    if (JUNK_RE.test(text)) score -= 80;
+    if (settings.musicStyle !== 'soundtrack') {
+        const freshness = settings.freshness || 'fresh';
+        if (freshness === 'fresh') {
+            if (track.year >= 2020) score += 35;
+            else if (track.year >= 2015) score += 22;
+            else if (track.year >= 2010) score += 6;
+            else if (track.year > 0) score -= 45;
+        } else if (freshness === 'balanced') {
+            if (track.year >= 2015) score += 12;
+            else if (track.year > 0 && track.year < 2005) score -= 18;
+        }
+    }
+    if (recentTrackUris.includes(track.uri)) score -= 90;
+    const artists = String(track.artists || '').toLowerCase();
+    for (const artist of recentArtists) {
+        if (artist && artists.includes(artist)) score -= 25;
+    }
+    return score + Math.random() * 4;
+}
+
 function rankTracks(tracks) {
-    return [...tracks].sort((a, b) => {
-        const scoreA = a.popularity - (JUNK_RE.test(`${a.name} ${a.artists} ${a.album}`) ? 60 : 0);
-        const scoreB = b.popularity - (JUNK_RE.test(`${b.name} ${b.artists} ${b.album}`) ? 60 : 0);
-        return scoreB - scoreA;
-    });
+    return [...tracks].sort((a, b) => trackScore(b) - trackScore(a));
 }
 
-function musicTokens(text) {
-    return [...new Set(String(text || '')
-        .toLowerCase()
-        .replace(/[^a-zа-яё0-9\s-]/gi, ' ')
-        .split(/[\s-]+/)
-        .map(x => x.trim())
-        .filter(x => x.length >= 3 && !['the', 'and', 'with', 'feat', 'remix', 'mix', 'ost', 'для', 'или', 'что', 'как', 'это'].includes(x)))];
-}
-
-const LIKED_MOOD_HINTS = [
-    { keys: ['battle', 'fight', 'epic', 'war', 'агресс', 'битв', 'бой'], words: ['battle', 'war', 'fight', 'blood', 'hero', 'storm', 'fire', 'rage', 'riot', 'army', 'doom', 'kill'] },
-    { keys: ['horror', 'dark', 'tension', 'страх', 'ужас', 'мрак'], words: ['dark', 'night', 'shadow', 'ghost', 'monster', 'devil', 'hell', 'grave', 'dead', 'death', 'black'] },
-    { keys: ['romantic', 'love', 'passion', 'роман', 'любов', 'страст'], words: ['love', 'heart', 'kiss', 'sweet', 'baby', 'desire', 'lover', 'romance', 'touch'] },
-    { keys: ['sad', 'sorrow', 'melancholic', 'печал', 'груст'], words: ['sad', 'cry', 'tears', 'lonely', 'alone', 'goodbye', 'blue', 'rain', 'broken', 'hurt'] },
-    { keys: ['cozy', 'calm', 'lo-fi', 'уют', 'спокой'], words: ['rain', 'home', 'warm', 'coffee', 'tea', 'sleep', 'dream', 'soft', 'lofi', 'lo-fi', 'acoustic'] },
-    { keys: ['party', 'dance', 'festive', 'весел', 'празд'], words: ['dance', 'party', 'club', 'fun', 'summer', 'night', 'disco', 'groove'] },
-    { keys: ['magic', 'fantasy', 'magical', 'маг'], words: ['magic', 'spell', 'dream', 'fairy', 'fantasy', 'moon', 'star', 'wonder'] },
-];
-
-function scoreLikedTrack(track, mood) {
-    const queryText = `${mood?.query || ''} ${mood?.mood || ''} ${mood?.reason || ''}`.toLowerCase();
-    const tokens = musicTokens(queryText);
-    const text = `${track.name} ${track.artists} ${track.album}`.toLowerCase();
-    let score = 0;
-    for (const token of tokens) {
-        if (text.includes(token)) score += token.length >= 6 ? 18 : 12;
-    }
-    for (const hint of LIKED_MOOD_HINTS) {
-        if (!hint.keys.some(key => queryText.includes(key))) continue;
-        for (const word of hint.words) {
-            if (text.includes(word)) score += 10;
-        }
-    }
-    if (score > 0) score += Math.min(20, track.popularity / 5);
-    if (JUNK_RE.test(text)) score -= 60;
-    return score;
-}
-
-async function getLikedTracks() {
-    if (Date.now() - likedTracksCache.fetchedAt < 10 * 60_000) {
-        return likedTracksCache.tracks;
-    }
-    const tracks = [];
-    for (let offset = 0; offset < 200; offset += 50) {
-        const res = await api(`/me/tracks?limit=50&offset=${offset}`);
-        if (res.status === 403) {
-            handleScope403();
-            return null;
-        }
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        for (const item of data.items || []) {
-            const track = normalizeTrack(item.track);
-            if (track && !isBanned(track)) {
-                tracks.push(track);
-                likedCache[trackId(track)] = true;
-            }
-        }
-        if (!data.next) break;
-    }
-    likedTracksCache = { fetchedAt: Date.now(), tracks };
-    return tracks;
-}
-
-async function likedTracksForMood(mood) {
-    if (!settings.preferLiked) return [];
-    status(t('checkingLiked'));
-    try {
-        const tracks = await getLikedTracks();
-        if (!tracks) return [];
-        const ranked = tracks
-            .filter(track => !isBanned(track))
-            .map(track => ({ ...track, likedScore: scoreLikedTrack(track, mood) }))
-            .filter(track => track.likedScore >= 18)
-            .sort((a, b) => b.likedScore - a.likedScore || b.popularity - a.popularity)
-            .slice(0, 10);
-        if (!ranked.length) status(t('likedNoMatch'));
-        return ranked;
-    } catch (err) {
-        status(t('likedLoadFailed', { message: err.message }));
-        return [];
+function rememberTrack(track) {
+    if (!track?.uri) return;
+    recentTrackUris = [track.uri, ...recentTrackUris.filter(uri => uri !== track.uri)].slice(0, 12);
+    const firstArtist = String(track.artists || '').split(',')[0].trim().toLowerCase();
+    if (firstArtist) {
+        recentArtists = [firstArtist, ...recentArtists.filter(x => x !== firstArtist)].slice(0, 6);
     }
 }
 
@@ -609,7 +598,7 @@ async function togglePlayback() {
                 isPlaying = true;
             }
         }
-        $('.rvm-btn-toggle')
+        $('.rvm-btn-toggle i')
             .toggleClass('fa-play', !isPlaying)
             .toggleClass('fa-pause', isPlaying);
         updateInject();
@@ -714,15 +703,40 @@ async function addToPlaylist(track) {
     }
 }
 
-async function setVolume(volume) {
-    currentVolume = Math.max(0, Math.min(100, Math.round(Number(volume) || 0)));
+function clampVolume(volume) {
+    return Math.max(0, Math.min(100, Math.round(Number(volume) || 0)));
+}
+
+function updateVolumeUi() {
     $('.rvm-vol').val(currentVolume);
+    $('.rvm-vol-value').text(`${currentVolume}%`);
+}
+
+async function setVolume(volume, { announce = false } = {}) {
+    currentVolume = clampVolume(volume);
+    updateVolumeUi();
     try {
         const res = await api(`/me/player/volume?volume_percent=${currentVolume}`, { method: 'PUT' });
-        if (res.status === 403) status(t('needPremium'));
+        if (res.status === 403) {
+            status(t('needPremium'));
+            return;
+        }
+        if (!res.ok && res.status !== 204) {
+            status(t('volumeFailed', { status: res.status }));
+            return;
+        }
+        if (announce) status(t('volumeSet', { volume: currentVolume }));
     } catch (err) {
         console.warn(LOG, 'volume change failed:', err);
+        if (announce) status(t('error', { message: err.message }));
     }
+}
+
+function queueVolumeChange(volume) {
+    currentVolume = clampVolume(volume);
+    updateVolumeUi();
+    clearTimeout(volumeTimer);
+    volumeTimer = setTimeout(() => setVolume(currentVolume, { announce: true }), 250);
 }
 
 function applyAutoVolume(energy) {
@@ -784,6 +798,7 @@ function updateInject() {
 function afterPlay(ok) {
     updateInject();
     if (!ok) return;
+    rememberTrack(currentTrack);
     applyAutoVolume(currentMood?.energy);
     addToPlaylist(currentTrack);
 }
@@ -817,6 +832,12 @@ function buildPrompt(sceneText, cardText) {
         auto: 'Use famous popular songs when the scene fits them, and cinematic/instrumental music otherwise.',
     };
     const styleRule = styleRules[settings.musicStyle] || styleRules.auto;
+    const freshnessRules = {
+        fresh: 'Prefer fresh, varied music from roughly 2015-now; avoid overused legacy hits unless the scene explicitly asks for nostalgia.',
+        balanced: 'Use a mix of modern and proven tracks, but avoid repeating the same old classics too often.',
+        any: 'Any era is allowed if it fits the scene.',
+    };
+    const freshnessRule = freshnessRules[settings.freshness] || freshnessRules.fresh;
     const fandomRule = settings.useFandom
         ? 'If the roleplay is clearly set in a well-known franchise (game / anime / movie / book — e.g. Genshin Impact, Harry Potter, Naruto, The Witcher), set "fandom" to its name and make the query target its official soundtrack, themes, or openings (e.g. "Genshin Impact OST battle", "Harry Potter theme", "Naruto opening"). Otherwise set "fandom" to null.'
         : 'Set "fandom" to null.';
@@ -832,7 +853,8 @@ Rules:
 - Write the "mood" and "reason" values in ${lang() === 'ru' ? 'Russian' : 'English'}; keep "query" in English.
 - ${fandomRule}
 - For "query": describe MUSIC, not the plot — genre + adjectives + optional era/style keywords, or a franchise soundtrack search. Never mention roleplay character names.
-- ${styleRule}`;
+- ${styleRule}
+- ${freshnessRule}`;
 }
 
 async function runQuiet(prompt) {
@@ -960,7 +982,9 @@ function keywordMood(sceneText, cardText = '') {
     if (!best) {
         return { mood: t('moodAmbient'), energy: 4, query: 'cinematic ambient atmospheric instrumental', reason: t('reasonDefault') };
     }
-    const query = settings.musicStyle === 'modern' ? best.modern : best.query;
+    const query = settings.musicStyle === 'modern' || (settings.musicStyle === 'auto' && (settings.freshness || 'fresh') === 'fresh')
+        ? best.modern
+        : best.query;
     return { mood: moodLabel(best), energy: 5, query, reason: t('reasonKeyword') };
 }
 
@@ -1045,13 +1069,8 @@ async function analyzeAndPlay({ force = false, hint = '' } = {}) {
             status(t('vibeUnchanged', { mood: mood.mood }));
             return;
         }
-        let results = await likedTracksForMood(mood);
-        if (results.length) {
-            mood.reason = mood.reason ? `${mood.reason} · ${t('likedSource')}` : t('likedSource');
-        } else {
-            status(t('searching', { query: mood.query }));
-            results = await searchTracks(mood.query);
-        }
+        status(t('searching', { query: mood.query }));
+        const results = await searchTracks(mood.query);
         if (!results.length) {
             status(t('noTracks', { query: mood.query }));
             return;
@@ -1130,17 +1149,19 @@ function renderBlock(note = '') {
             <div class="rvm-artist">${esc(track.artists)}</div>
             ${note ? `<div class="rvm-note">${esc(note)}</div>` : ''}
         </div>
-        <div class="rvm-controls">
+        <div class="rvm-controls" role="group" aria-label="RP Vibe Music controls">
             <div class="rvm-ctrl-row">
-                <div class="rvm-btn rvm-btn-toggle fa-solid ${isPlaying ? 'fa-pause' : 'fa-play'}" title="${esc(t('ttToggle'))}"></div>
-                <div class="rvm-btn rvm-btn-next fa-solid fa-forward" title="${esc(t('ttNext'))}"></div>
-                <div class="rvm-btn rvm-btn-reroll fa-solid fa-arrows-rotate" title="${esc(t('ttReroll'))}"></div>
+                <button type="button" class="rvm-iconbtn rvm-btn-toggle" title="${esc(t('ttToggle'))}" aria-label="${esc(t('ttToggle'))}"><i class="fa-solid ${isPlaying ? 'fa-pause' : 'fa-play'}"></i></button>
+                <button type="button" class="rvm-iconbtn rvm-btn-next" title="${esc(t('ttNext'))}" aria-label="${esc(t('ttNext'))}"><i class="fa-solid fa-forward"></i></button>
+                <button type="button" class="rvm-iconbtn rvm-btn-reroll" title="${esc(t('ttReroll'))}" aria-label="${esc(t('ttReroll'))}"><i class="fa-solid fa-arrows-rotate"></i></button>
+                <button type="button" class="rvm-iconbtn rvm-btn-like" title="${esc(t('ttLike'))}" aria-label="${esc(t('ttLike'))}"><i class="fa-solid fa-heart"></i></button>
+                <button type="button" class="rvm-iconbtn rvm-btn-ban" title="${esc(t('ttBan'))}" aria-label="${esc(t('ttBan'))}"><i class="fa-solid fa-ban"></i></button>
             </div>
-            <div class="rvm-ctrl-row">
-                <div class="rvm-btn rvm-btn-like fa-solid fa-heart" title="${esc(t('ttLike'))}"></div>
-                <div class="rvm-btn rvm-btn-ban fa-solid fa-ban" title="${esc(t('ttBan'))}"></div>
-                <input type="range" class="rvm-vol" min="0" max="100" value="${currentVolume}" title="${esc(t('ttVolume'))}">
-            </div>
+            <label class="rvm-volume" title="${esc(t('ttVolume'))}">
+                <i class="fa-solid fa-volume-high"></i>
+                <input type="range" class="rvm-vol" min="0" max="100" value="${currentVolume}">
+                <span class="rvm-vol-value">${currentVolume}%</span>
+            </label>
         </div>
     </div>`;
     target.append(html);
@@ -1159,6 +1180,14 @@ function onCharacterMessage() {
 
 // -------------------------------------------------------------- settings UI ---
 
+function settingsSection(title, body) {
+    return `
+        <div class="rvm-section">
+            <div class="rvm-section-title">${esc(title)}</div>
+            <div class="rvm-section-body">${body}</div>
+        </div>`;
+}
+
 function buildSettingsHtml() {
     return `
 <div class="rvm-ext-settings">
@@ -1168,65 +1197,83 @@ function buildSettingsHtml() {
             <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
         </div>
         <div class="inline-drawer-content">
-            <label>${esc(t('sLanguage'))}
-                <select id="rvm_lang" class="text_pole">
-                    <option value="auto">${esc(t('sLangAuto'))}</option>
-                    <option value="en">English</option>
-                    <option value="ru">Русский</option>
-                </select>
-            </label>
-            <label class="checkbox_label"><input id="rvm_enabled" type="checkbox"><span>${esc(t('sEnabled'))}</span></label>
-            <label class="checkbox_label"><input id="rvm_auto" type="checkbox"><span>${esc(t('sAuto'))}</span></label>
-            <label class="checkbox_label"><input id="rvm_inline" type="checkbox"><span>${esc(t('sInline'))}</span></label>
-            <label class="checkbox_label"><input id="rvm_keep" type="checkbox"><span>${esc(t('sKeep'))}</span></label>
-            <label class="checkbox_label"><input id="rvm_fandom" type="checkbox"><span>${esc(t('sFandom'))}</span></label>
-            <label>${esc(t('sStyle'))}
-                <select id="rvm_style" class="text_pole">
-                    <option value="auto">${esc(t('sStyleAuto'))}</option>
-                    <option value="modern">${esc(t('sStyleModern'))}</option>
-                    <option value="soundtrack">${esc(t('sStyleSoundtrack'))}</option>
-                </select>
-            </label>
-            <label>${esc(t('sEngine'))}
-                <select id="rvm_engine" class="text_pole">
-                    <option value="auto">${esc(t('sEngineAuto'))}</option>
-                    <option value="llm">${esc(t('sEngineLlm'))}</option>
-                    <option value="keywords">${esc(t('sEngineKeywords'))}</option>
-                </select>
-            </label>
-            <label>${esc(t('sInterval'))}
-                <input id="rvm_interval" type="number" min="1" max="20" class="text_pole">
-            </label>
-            <hr>
-            <label class="checkbox_label"><input id="rvm_prefer_liked" type="checkbox"><span>${esc(t('sPreferLiked'))}</span></label>
-            <label class="checkbox_label"><input id="rvm_inject" type="checkbox"><span>${esc(t('sInject'))}</span></label>
-            <label>${esc(t('sInjectDepth'))}
-                <input id="rvm_inject_depth" type="number" min="0" max="20" class="text_pole">
-            </label>
-            <label>${esc(t('sInjectTemplate'))}
-                <textarea id="rvm_inject_template" class="text_pole" rows="2" placeholder="${esc(t('injectDefault'))}"></textarea>
-            </label>
-            <label class="checkbox_label"><input id="rvm_playlist" type="checkbox"><span>${esc(t('sAutoPlaylist'))}</span></label>
-            <label class="checkbox_label"><input id="rvm_autovol" type="checkbox"><span>${esc(t('sAutoVolume'))}</span></label>
-            <label class="checkbox_label"><input id="rvm_smooth" type="checkbox"><span>${esc(t('sSmooth'))}</span></label>
-            <div class="rvm-btnrow">
-                <span id="rvm_ban_count" class="rvm-status"></span>
-                <div id="rvm_ban_clear" class="menu_button">${esc(t('sBanClear'))}</div>
-            </div>
-            <hr>
-            <label>Spotify Client ID
-                <input id="rvm_client_id" type="text" class="text_pole" placeholder="${esc(t('sClientIdPh'))}">
-            </label>
-            <label>${esc(t('sRedirect'))}
-                <input id="rvm_redirect" type="text" class="text_pole">
-            </label>
-            <div class="rvm-btnrow">
-                <div id="rvm_connect" class="menu_button">${esc(t('sConnect'))}</div>
-                <div id="rvm_disconnect" class="menu_button">${esc(t('sDisconnect'))}</div>
-                <div id="rvm_analyze" class="menu_button">${esc(t('sAnalyze'))}</div>
-            </div>
-            <div id="rvm_status" class="rvm-status">${esc(t('notConnected'))}</div>
-            <small>${t('sHint')}</small>
+            ${settingsSection(t('sSectionMain'), `
+                <div class="rvm-grid">
+                    <label>${esc(t('sLanguage'))}
+                        <select id="rvm_lang" class="text_pole">
+                            <option value="auto">${esc(t('sLangAuto'))}</option>
+                            <option value="en">English</option>
+                            <option value="ru">Русский</option>
+                        </select>
+                    </label>
+                    <label class="checkbox_label"><input id="rvm_enabled" type="checkbox"><span>${esc(t('sEnabled'))}</span></label>
+                    <label class="checkbox_label"><input id="rvm_auto" type="checkbox"><span>${esc(t('sAuto'))}</span></label>
+                    <label class="checkbox_label"><input id="rvm_inline" type="checkbox"><span>${esc(t('sInline'))}</span></label>
+                    <label class="checkbox_label"><input id="rvm_keep" type="checkbox"><span>${esc(t('sKeep'))}</span></label>
+                </div>
+            `)}
+            ${settingsSection(t('sSectionMusic'), `
+                <div class="rvm-grid">
+                    <label>${esc(t('sStyle'))}
+                        <select id="rvm_style" class="text_pole">
+                            <option value="auto">${esc(t('sStyleAuto'))}</option>
+                            <option value="modern">${esc(t('sStyleModern'))}</option>
+                            <option value="soundtrack">${esc(t('sStyleSoundtrack'))}</option>
+                        </select>
+                    </label>
+                    <label>${esc(t('sFreshness'))}
+                        <select id="rvm_freshness" class="text_pole">
+                            <option value="fresh">${esc(t('sFreshnessFresh'))}</option>
+                            <option value="balanced">${esc(t('sFreshnessBalanced'))}</option>
+                            <option value="any">${esc(t('sFreshnessAny'))}</option>
+                        </select>
+                    </label>
+                    <label>${esc(t('sEngine'))}
+                        <select id="rvm_engine" class="text_pole">
+                            <option value="auto">${esc(t('sEngineAuto'))}</option>
+                            <option value="llm">${esc(t('sEngineLlm'))}</option>
+                            <option value="keywords">${esc(t('sEngineKeywords'))}</option>
+                        </select>
+                    </label>
+                    <label>${esc(t('sInterval'))}
+                        <input id="rvm_interval" type="number" min="1" max="20" class="text_pole">
+                    </label>
+                    <label class="checkbox_label"><input id="rvm_fandom" type="checkbox"><span>${esc(t('sFandom'))}</span></label>
+                    <label class="checkbox_label"><input id="rvm_autovol" type="checkbox"><span>${esc(t('sAutoVolume'))}</span></label>
+                    <label class="checkbox_label"><input id="rvm_smooth" type="checkbox"><span>${esc(t('sSmooth'))}</span></label>
+                    <label class="checkbox_label"><input id="rvm_playlist" type="checkbox"><span>${esc(t('sAutoPlaylist'))}</span></label>
+                </div>
+                <div class="rvm-btnrow rvm-banrow">
+                    <span id="rvm_ban_count" class="rvm-status"></span>
+                    <button type="button" id="rvm_ban_clear" class="menu_button">${esc(t('sBanClear'))}</button>
+                </div>
+            `)}
+            ${settingsSection(t('sSectionPrompt'), `
+                <label class="checkbox_label"><input id="rvm_inject" type="checkbox"><span>${esc(t('sInject'))}</span></label>
+                <div class="rvm-grid">
+                    <label>${esc(t('sInjectDepth'))}
+                        <input id="rvm_inject_depth" type="number" min="0" max="20" class="text_pole">
+                    </label>
+                    <label>${esc(t('sInjectTemplate'))}
+                        <textarea id="rvm_inject_template" class="text_pole" rows="3" placeholder="${esc(t('injectDefault'))}"></textarea>
+                    </label>
+                </div>
+            `)}
+            ${settingsSection(t('sSectionSpotify'), `
+                <label>Spotify Client ID
+                    <input id="rvm_client_id" type="text" class="text_pole" placeholder="${esc(t('sClientIdPh'))}">
+                </label>
+                <label>${esc(t('sRedirect'))}
+                    <input id="rvm_redirect" type="text" class="text_pole">
+                </label>
+                <div class="rvm-btnrow">
+                    <button type="button" id="rvm_connect" class="menu_button">${esc(t('sConnect'))}</button>
+                    <button type="button" id="rvm_disconnect" class="menu_button">${esc(t('sDisconnect'))}</button>
+                    <button type="button" id="rvm_analyze" class="menu_button">${esc(t('sAnalyze'))}</button>
+                </div>
+                <div id="rvm_status" class="rvm-status">${esc(t('notConnected'))}</div>
+                <small>${t('sHint')}</small>
+            `)}
         </div>
     </div>
 </div>`;
@@ -1256,12 +1303,12 @@ function addSettingsUi() {
     $('#rvm_keep').prop('checked', settings.keepOldBlocks).on('change', function () { settings.keepOldBlocks = this.checked; save(); });
     $('#rvm_fandom').prop('checked', settings.useFandom).on('change', function () { settings.useFandom = this.checked; save(); });
     $('#rvm_style').val(settings.musicStyle || 'auto').on('change', function () { settings.musicStyle = this.value; save(); });
+    $('#rvm_freshness').val(settings.freshness || 'fresh').on('change', function () { settings.freshness = this.value; save(); });
     $('#rvm_engine').val(settings.moodEngine || 'auto').on('change', function () { settings.moodEngine = this.value; save(); });
     $('#rvm_interval').val(settings.messageInterval).on('input', function () { settings.messageInterval = Math.max(1, Number(this.value) || 1); save(); });
     $('#rvm_client_id').val(settings.clientId).on('input', function () { settings.clientId = this.value.trim(); save(); });
     $('#rvm_redirect').val(settings.redirectUri).on('input', function () { settings.redirectUri = this.value.trim(); save(); });
 
-    $('#rvm_prefer_liked').prop('checked', settings.preferLiked).on('change', function () { settings.preferLiked = this.checked; save(); });
     $('#rvm_inject').prop('checked', settings.injectEnabled).on('change', function () { settings.injectEnabled = this.checked; save(); updateInject(); });
     $('#rvm_inject_depth').val(settings.injectDepth).on('input', function () { settings.injectDepth = Math.max(0, Number(this.value) || 0); save(); updateInject(); });
     $('#rvm_inject_template').val(settings.injectTemplate).on('input', function () { settings.injectTemplate = this.value; save(); updateInject(); });
@@ -1282,13 +1329,35 @@ function updateBanCountUi() {
 
 // Inline block controls (delegated — blocks are created dynamically).
 // Bound once at init, NOT in addSettingsUi, which re-runs on language change.
+function runControlAction(event, action) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (controlBusy) return;
+    controlBusy = true;
+    $('.rvm-iconbtn').prop('disabled', true).addClass('rvm-busy');
+    Promise.resolve(action())
+        .catch(err => status(t('error', { message: err.message })))
+        .finally(() => {
+            controlBusy = false;
+            $('.rvm-iconbtn').prop('disabled', false).removeClass('rvm-busy');
+        });
+}
+
 function bindBlockControls() {
-    $(document).on('click', '.rvm-btn-toggle', togglePlayback);
-    $(document).on('click', '.rvm-btn-next', nextTrack);
-    $(document).on('click', '.rvm-btn-reroll', () => analyzeAndPlay({ force: true }));
-    $(document).on('click', '.rvm-btn-like', toggleLike);
-    $(document).on('click', '.rvm-btn-ban', banTrack);
-    $(document).on('change', '.rvm-vol', function () { setVolume(this.value); });
+    $(document)
+        .off('click.rvm', '.rvm-btn-toggle')
+        .off('click.rvm', '.rvm-btn-next')
+        .off('click.rvm', '.rvm-btn-reroll')
+        .off('click.rvm', '.rvm-btn-like')
+        .off('click.rvm', '.rvm-btn-ban')
+        .off('input.rvm change.rvm', '.rvm-vol')
+        .on('click.rvm', '.rvm-btn-toggle', function (event) { runControlAction(event, togglePlayback); })
+        .on('click.rvm', '.rvm-btn-next', function (event) { runControlAction(event, nextTrack); })
+        .on('click.rvm', '.rvm-btn-reroll', function (event) { runControlAction(event, () => analyzeAndPlay({ force: true })); })
+        .on('click.rvm', '.rvm-btn-like', function (event) { runControlAction(event, toggleLike); })
+        .on('click.rvm', '.rvm-btn-ban', function (event) { runControlAction(event, banTrack); })
+        .on('input.rvm', '.rvm-vol', function () { queueVolumeChange(this.value); })
+        .on('change.rvm', '.rvm-vol', function () { clearTimeout(volumeTimer); setVolume(this.value, { announce: true }); });
 }
 
 function updateConnectionUi() {
