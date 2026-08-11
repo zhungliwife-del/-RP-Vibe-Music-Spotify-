@@ -33,6 +33,12 @@ inside the chat** — with album art, mood label, and playback controls.
 - ⚙️ Configurable: auto mode on/off, analysis frequency, instrumental preference,
   keep or move old music blocks.
 
+- 🌍 **English / Русский интерфейс** — the whole UI (settings panel, statuses,
+  in-chat block, mood labels) is available in English and Russian. Default is
+  **Auto** (follows your SillyTavern language); switch manually via the
+  "Language / Язык" dropdown at the top of the settings panel. The LLM mood
+  labels in the chat block are also written in the selected language.
+
 ## Installation
 
 1. In SillyTavern open **Extensions → Install extension**.

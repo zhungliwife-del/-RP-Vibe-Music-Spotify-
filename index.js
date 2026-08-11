@@ -9,6 +9,7 @@ const VERIFIER_KEY = 'rvm_pkce_verifier';
 const SCOPES = 'user-read-playback-state user-modify-playback-state user-read-currently-playing';
 
 const defaultSettings = {
+    language: 'auto', // 'auto' (follow SillyTavern locale) | 'en' | 'ru'
     enabled: true,
     autoMode: true,
     inlineBlock: true,
@@ -66,6 +67,159 @@ function status(text) {
     $('#rvm_status').text(text);
 }
 
+// ------------------------------------------------------------------ i18n ---
+
+const LANGS = {
+    en: {
+        // statuses
+        enterClientId: 'Enter your Spotify Client ID first (developer.spotify.com → Dashboard → Create app).',
+        disconnected: 'Disconnected from Spotify.',
+        authStateMismatch: 'Spotify authorization failed: state mismatch. Press "Connect Spotify" again.',
+        authFailed: 'Spotify authorization failed: {error}',
+        authVerifier: 'Spotify authorization failed: missing PKCE verifier. Press "Connect Spotify" again.',
+        authHttp: 'Spotify authorization failed (HTTP {status}). Check that the Redirect URI in your Spotify app matches exactly.',
+        connectedOk: 'Connected to Spotify ✔',
+        connectedShort: 'Connected to Spotify.',
+        notConnected: 'Not connected.',
+        sessionExpired: 'Spotify session expired — reconnect (HTTP {status})',
+        searchFailed: 'Spotify search failed (HTTP {status}) for "{query}"',
+        noDevice: 'No active Spotify device. Open Spotify on any device, then press ▶ here.',
+        needPremium: 'Playback control requires Spotify Premium — tap the track title to open it in Spotify.',
+        playbackHttp: 'Spotify playback error (HTTP {status}).',
+        nowPlaying: 'Now playing: {name} — {artists}',
+        nowPlayingMood: 'Now playing: {name} — {artists} ({mood})',
+        connectFirst: 'Connect Spotify first (Extensions → RP Vibe Music).',
+        noMessages: 'No messages to analyze yet.',
+        analyzing: 'Analyzing the scene mood…',
+        moodFailed: 'Mood analysis failed: {message}',
+        moodParse: 'Mood analysis failed: could not parse the LLM reply.',
+        noVibe: 'Could not determine a vibe from the scene.',
+        emptyQuery: 'Mood query was empty after sanitizing — try /vibe with a manual query.',
+        vibeUnchanged: 'Vibe unchanged ({mood}) — keeping the current track.',
+        searching: 'Searching Spotify: "{query}"…',
+        noTracks: 'No tracks found for "{query}".',
+        error: 'Error: {message}',
+        // mood engine
+        reasonKeyword: 'keyword engine',
+        reasonKeywordFandom: 'keyword engine · fandom',
+        reasonDefault: 'keyword engine · default',
+        reasonManual: 'manual override',
+        moodAmbient: 'ambient',
+        moodDefault: 'vibe',
+        // block
+        ttToggle: 'Play / Pause',
+        ttNext: 'Another track for this vibe',
+        ttReroll: 'Re-analyze the scene',
+        // settings UI
+        sTitle: '🎵 RP Vibe Music (Spotify)',
+        sLanguage: 'Language / Язык',
+        sLangAuto: 'Auto (SillyTavern language)',
+        sEnabled: 'Enabled',
+        sAuto: 'Auto mode — adapt music to the scene',
+        sInline: 'Show "Now playing" block in chat',
+        sKeep: 'Keep old music blocks in chat',
+        sFandom: 'Use franchise soundtracks when detected (Genshin, Harry Potter…)',
+        sStyle: 'Music style',
+        sStyleAuto: 'Auto — famous songs when they fit, cinematic otherwise',
+        sStyleModern: 'Modern popular — rock / rap / metal / pop with vocals',
+        sStyleSoundtrack: 'Instrumental / soundtrack only',
+        sEngine: 'Mood engine',
+        sEngineAuto: 'LLM with keyword fallback (default)',
+        sEngineLlm: 'LLM only',
+        sEngineKeywords: 'Keywords only — no LLM calls',
+        sInterval: 'Analyze every N character messages',
+        sClientId: 'Spotify Client ID',
+        sClientIdPh: 'from developer.spotify.com',
+        sRedirect: 'Redirect URI (must match your Spotify app exactly)',
+        sConnect: 'Connect Spotify',
+        sDisconnect: 'Disconnect',
+        sAnalyze: 'Analyze now',
+        sHint: 'Playback control needs Spotify Premium. Use <code>/vibe</code> to re-analyze the scene, or <code>/vibe dark epic orchestral</code> to force a vibe.',
+        slashHelp: 'Adapt Spotify music to the current RP scene. Optionally force a vibe: /vibe dark epic orchestral',
+    },
+    ru: {
+        // statuses
+        enterClientId: 'Сначала введите Spotify Client ID (developer.spotify.com → Dashboard → Create app).',
+        disconnected: 'Отключено от Spotify.',
+        authStateMismatch: 'Авторизация Spotify не удалась: несовпадение state. Нажмите «Подключить Spotify» ещё раз.',
+        authFailed: 'Авторизация Spotify не удалась: {error}',
+        authVerifier: 'Авторизация Spotify не удалась: потерян PKCE verifier. Нажмите «Подключить Spotify» ещё раз.',
+        authHttp: 'Авторизация Spotify не удалась (HTTP {status}). Проверьте, что Redirect URI в приложении Spotify совпадает точь-в-точь.',
+        connectedOk: 'Подключено к Spotify ✔',
+        connectedShort: 'Подключено к Spotify.',
+        notConnected: 'Не подключено.',
+        sessionExpired: 'Сессия Spotify истекла — переподключитесь (HTTP {status})',
+        searchFailed: 'Поиск Spotify не удался (HTTP {status}) по запросу «{query}»',
+        noDevice: 'Нет активного устройства Spotify. Откройте Spotify на любом устройстве и нажмите ▶ здесь.',
+        needPremium: 'Для управления воспроизведением нужен Spotify Premium — нажмите на название трека, чтобы открыть его в Spotify.',
+        playbackHttp: 'Ошибка воспроизведения Spotify (HTTP {status}).',
+        nowPlaying: 'Сейчас играет: {name} — {artists}',
+        nowPlayingMood: 'Сейчас играет: {name} — {artists} ({mood})',
+        connectFirst: 'Сначала подключите Spotify (Расширения → RP Vibe Music).',
+        noMessages: 'Пока нет сообщений для анализа.',
+        analyzing: 'Анализирую настроение сцены…',
+        moodFailed: 'Анализ настроения не удался: {message}',
+        moodParse: 'Анализ настроения не удался: не получилось разобрать ответ LLM.',
+        noVibe: 'Не удалось определить вайб сцены.',
+        emptyQuery: 'Запрос настроения оказался пустым — попробуйте /vibe с ручным запросом.',
+        vibeUnchanged: 'Вайб не изменился ({mood}) — оставляю текущий трек.',
+        searching: 'Ищу в Spotify: «{query}»…',
+        noTracks: 'Ничего не найдено по запросу «{query}».',
+        error: 'Ошибка: {message}',
+        // mood engine
+        reasonKeyword: 'движок ключевых слов',
+        reasonKeywordFandom: 'ключевые слова · фандом',
+        reasonDefault: 'ключевые слова · по умолчанию',
+        reasonManual: 'ручной запрос',
+        moodAmbient: 'эмбиент',
+        moodDefault: 'вайб',
+        // block
+        ttToggle: 'Играть / Пауза',
+        ttNext: 'Другой трек под этот вайб',
+        ttReroll: 'Проанализировать сцену заново',
+        // settings UI
+        sTitle: '🎵 RP Vibe Music (Spotify)',
+        sLanguage: 'Язык / Language',
+        sLangAuto: 'Авто (язык SillyTavern)',
+        sEnabled: 'Включено',
+        sAuto: 'Авторежим — подстраивать музыку под сцену',
+        sInline: 'Показывать блок «Сейчас играет» в чате',
+        sKeep: 'Оставлять старые блоки музыки в чате',
+        sFandom: 'Использовать саундтреки франшиз, если они узнаны (Genshin, Гарри Поттер…)',
+        sStyle: 'Стиль музыки',
+        sStyleAuto: 'Авто — известные песни, когда подходят, иначе кинематографичная музыка',
+        sStyleModern: 'Современная популярная — рок / рэп / метал / поп с вокалом',
+        sStyleSoundtrack: 'Только инструментал / саундтреки',
+        sEngine: 'Движок настроения',
+        sEngineAuto: 'LLM с запасным движком ключевых слов (по умолчанию)',
+        sEngineLlm: 'Только LLM',
+        sEngineKeywords: 'Только ключевые слова — без обращений к LLM',
+        sInterval: 'Анализировать каждые N сообщений персонажа',
+        sClientId: 'Spotify Client ID',
+        sClientIdPh: 'с developer.spotify.com',
+        sRedirect: 'Redirect URI (должен точно совпадать с приложением Spotify)',
+        sConnect: 'Подключить Spotify',
+        sDisconnect: 'Отключить',
+        sAnalyze: 'Анализировать сейчас',
+        sHint: 'Для управления воспроизведением нужен Spotify Premium. Команда <code>/vibe</code> — перечитать сцену, <code>/vibe dark epic orchestral</code> — задать вайб вручную.',
+        slashHelp: 'Подстроить музыку Spotify под текущую RP-сцену. Можно задать вайб вручную: /vibe dark epic orchestral',
+    },
+};
+
+function lang() {
+    if (settings.language === 'ru' || settings.language === 'en') return settings.language;
+    const locale = localStorage.getItem('language') || navigator.language || 'en';
+    return String(locale).toLowerCase().startsWith('ru') ? 'ru' : 'en';
+}
+
+function t(key, vars = {}) {
+    let text = LANGS[lang()]?.[key] ?? LANGS.en[key] ?? key;
+    for (const [k, v] of Object.entries(vars)) {
+        text = text.replaceAll(`{${k}}`, String(v));
+    }
+    return text;
+}
+
 // ------------------------------------------------------------------ auth ---
 
 function defaultRedirectUri() {
@@ -86,7 +240,7 @@ async function sha256base64url(input) {
 
 async function connectSpotify() {
     if (!settings.clientId) {
-        status('Enter your Spotify Client ID first (developer.spotify.com → Dashboard → Create app).');
+        status(t('enterClientId'));
         return;
     }
     const verifier = randomString(64);
@@ -112,7 +266,7 @@ function disconnectSpotify() {
     tokenExpiresAt = 0;
     save();
     updateConnectionUi();
-    status('Disconnected from Spotify.');
+    status(t('disconnected'));
 }
 
 async function handleAuthCallback() {
@@ -125,17 +279,17 @@ async function handleAuthCallback() {
     const error = params.get('error');
     window.history.replaceState({}, document.title, window.location.pathname);
     if (!expectedState || returnedState !== expectedState) {
-        status('Spotify authorization failed: state mismatch. Press "Connect Spotify" again.');
+        status(t('authStateMismatch'));
         return;
     }
     if (error) {
-        status(`Spotify authorization failed: ${error}`);
+        status(t('authFailed', { error }));
         return;
     }
     if (!code) return;
     const verifier = localStorage.getItem(VERIFIER_KEY);
     if (!verifier) {
-        status('Spotify authorization failed: missing PKCE verifier. Press "Connect Spotify" again.');
+        status(t('authVerifier'));
         return;
     }
     try {
@@ -152,7 +306,7 @@ async function handleAuthCallback() {
             body,
         });
         if (!res.ok) {
-            status(`Spotify authorization failed (HTTP ${res.status}). Check that the Redirect URI in your Spotify app matches exactly.`);
+            status(t('authHttp', { status: res.status }));
             return;
         }
         const data = await res.json();
@@ -162,10 +316,10 @@ async function handleAuthCallback() {
         save();
         localStorage.removeItem(VERIFIER_KEY);
         updateConnectionUi();
-        status('Connected to Spotify ✔');
+        status(t('connectedOk'));
     } catch (err) {
         console.error(LOG, err);
-        status(`Spotify authorization failed: ${err.message}`);
+        status(t('authFailed', { error: err.message }));
     }
 }
 
@@ -188,7 +342,7 @@ async function ensureToken() {
             save();
             updateConnectionUi();
         }
-        throw new Error(`Spotify session expired — reconnect (HTTP ${res.status})`);
+        throw new Error(t('sessionExpired', { status: res.status }));
     }
     const data = await res.json();
     accessToken = data.access_token;
@@ -227,7 +381,7 @@ function sanitizeQuery(query) {
 async function searchTracks(query) {
     // Dev-mode apps are capped at limit=10 since Spotify's Feb 2026 API changes.
     const res = await api(`/search?type=track&limit=10&q=${encodeURIComponent(query)}`);
-    if (!res.ok) throw new Error(`Spotify search failed (HTTP ${res.status}) for "${query}"`);
+    if (!res.ok) throw new Error(t('searchFailed', { status: res.status, query }));
     const data = await res.json();
     const tracks = (data.tracks?.items || []).map(t => ({
         uri: t.uri,
@@ -261,7 +415,7 @@ async function playTrack(track) {
         const device = devices.find(d => !d.is_restricted);
         if (!device) {
             isPlaying = false;
-            return { ok: false, note: 'No active Spotify device. Open Spotify on any device, then press ▶ here.' };
+            return { ok: false, note: t('noDevice') };
         }
         res = await api(`/me/player/play?device_id=${encodeURIComponent(device.id)}`, {
             method: 'PUT',
@@ -270,11 +424,11 @@ async function playTrack(track) {
     }
     if (res.status === 403) {
         isPlaying = false;
-        return { ok: false, note: 'Playback control requires Spotify Premium — tap the track title to open it in Spotify.' };
+        return { ok: false, note: t('needPremium') };
     }
     if (!res.ok && res.status !== 204) {
         isPlaying = false;
-        return { ok: false, note: `Spotify playback error (HTTP ${res.status}).` };
+        return { ok: false, note: t('playbackHttp', { status: res.status }) };
     }
     isPlaying = true;
     return { ok: true };
@@ -299,7 +453,7 @@ async function togglePlayback() {
             .toggleClass('fa-play', !isPlaying)
             .toggleClass('fa-pause', isPlaying);
     } catch (err) {
-        status(`Error: ${err.message}`);
+        status(t('error', { message: err.message }));
     }
 }
 
@@ -309,7 +463,7 @@ async function nextTrack() {
     currentTrack = searchResults[searchIndex];
     const result = await playTrack(currentTrack);
     renderBlock(result.ok ? '' : result.note);
-    status(result.ok ? `Now playing: ${currentTrack.name} — ${currentTrack.artists}` : result.note);
+    status(result.ok ? t('nowPlaying', { name: currentTrack.name, artists: currentTrack.artists }) : result.note);
 }
 
 // ------------------------------------------------------------ mood engine ---
@@ -353,6 +507,7 @@ Respond with ONLY a single JSON object and nothing else, in exactly this shape:
 {"mood":"1-3 word mood label","energy":5,"fandom":"franchise name or null","query":"Spotify track search query","reason":"very short explanation"}
 
 Rules:
+- Write the "mood" and "reason" values in ${lang() === 'ru' ? 'Russian' : 'English'}; keep "query" in English.
 - ${fandomRule}
 - For "query": describe MUSIC, not the plot — genre + adjectives + optional era/style keywords, or a franchise soundtrack search. Never mention roleplay character names.
 - ${styleRule}`;
@@ -396,16 +551,16 @@ function withTimeout(promise, ms, label) {
 
 // Offline mood detection — no LLM calls at all. English + Russian keywords.
 const VIBE_RULES = [
-    { mood: 'epic battle', tag: 'battle', query: 'epic orchestral battle intense drums choir', modern: 'aggressive metal rock battle', words: ['battle', 'fight', 'sword', 'blade', 'gun', 'attack', 'war', 'enemy', 'strike', 'clash', 'punch', 'shoot', 'бой', 'битв', 'драк', 'сраж', 'меч', 'клин', 'оруж', 'атак', 'войн', 'удар', 'враг', 'выстрел'] },
-    { mood: 'horror', tag: 'dark', query: 'dark ambient horror tension drone', modern: 'dark phonk horrorcore', words: ['fear', 'horror', 'terror', 'shadow', 'monster', 'scream', 'creep', 'dread', 'nightmare', 'страх', 'ужас', 'тьм', 'тень', 'монстр', 'крик', 'жутк', 'кошмар', 'мрак'] },
-    { mood: 'passionate', tag: 'sensual', query: 'sensual slow smooth saxophone r&b', modern: 'sensual r&b slow jam', words: ['moan', 'passion', 'desire', 'lust', 'undress', 'sensual', 'стон', 'страст', 'желани', 'вожделен', 'постел', 'соблазн'] },
-    { mood: 'romantic', tag: 'love', query: 'romantic tender piano strings soft', modern: 'romantic pop love song', words: ['kiss', 'love', 'embrace', 'tender', 'blush', 'heart', 'caress', 'gentle', 'поцелу', 'любл', 'любов', 'обним', 'объят', 'нежн', 'сердц', 'ласк', 'романт'] },
-    { mood: 'sorrowful', tag: 'sad', query: 'sad melancholic piano emotional', modern: 'sad emotional ballad', words: ['tears', 'cry', 'crying', 'grief', 'loss', 'mourn', 'sorrow', 'weep', 'слез', 'плакал', 'плач', 'горе', 'печал', 'утрат', 'скорб', 'груст'] },
-    { mood: 'mysterious', tag: 'tension', query: 'suspense noir mysterious tension strings', modern: 'dark trap suspense', words: ['mystery', 'secret', 'investigate', 'clue', 'whisper', 'suspicion', 'hidden', 'тайн', 'загадк', 'секрет', 'улик', 'шепот', 'шёпот', 'подозр', 'скрыт'] },
-    { mood: 'magical', tag: 'magic', query: 'fantasy magical ethereal orchestral mystical', modern: 'ethereal dream pop magical', words: ['magic', 'spell', 'wizard', 'ritual', 'arcane', 'enchant', 'маги', 'заклинан', 'волшеб', 'ритуал', 'чар', 'колд'] },
-    { mood: 'adventurous', tag: 'adventure', query: 'cinematic adventure journey folk orchestral', modern: 'indie rock adventure anthem', words: ['journey', 'travel', 'forest', 'road', 'mountain', 'explore', 'quest', 'путешеств', 'дорог', 'лес', 'гор', 'странств', 'поход', 'путь'] },
-    { mood: 'festive', tag: 'party', query: 'upbeat fun swing dance party', modern: 'party hits dance pop', words: ['dance', 'party', 'laugh', 'festival', 'celebrate', 'drink', 'tavern', 'танц', 'вечеринк', 'смех', 'смея', 'праздник', 'весел', 'таверн'] },
-    { mood: 'cozy', tag: 'calm', query: 'cozy calm acoustic warm lo-fi', modern: 'chill lo-fi indie cozy', words: ['cozy', 'warm', 'tea', 'coffee', 'fireplace', 'rain', 'blanket', 'calm', 'quiet', 'уют', 'тепл', 'чай', 'кофе', 'камин', 'дожд', 'плед', 'спокой', 'тиш'] },
+    { mood: 'epic battle', ru: 'эпичная битва', tag: 'battle', query: 'epic orchestral battle intense drums choir', modern: 'aggressive metal rock battle', words: ['battle', 'fight', 'sword', 'blade', 'gun', 'attack', 'war', 'enemy', 'strike', 'clash', 'punch', 'shoot', 'бой', 'битв', 'драк', 'сраж', 'меч', 'клин', 'оруж', 'атак', 'войн', 'удар', 'враг', 'выстрел'] },
+    { mood: 'horror', ru: 'хоррор', tag: 'dark', query: 'dark ambient horror tension drone', modern: 'dark phonk horrorcore', words: ['fear', 'horror', 'terror', 'shadow', 'monster', 'scream', 'creep', 'dread', 'nightmare', 'страх', 'ужас', 'тьм', 'тень', 'монстр', 'крик', 'жутк', 'кошмар', 'мрак'] },
+    { mood: 'passionate', ru: 'страсть', tag: 'sensual', query: 'sensual slow smooth saxophone r&b', modern: 'sensual r&b slow jam', words: ['moan', 'passion', 'desire', 'lust', 'undress', 'sensual', 'стон', 'страст', 'желани', 'вожделен', 'постел', 'соблазн'] },
+    { mood: 'romantic', ru: 'романтика', tag: 'love', query: 'romantic tender piano strings soft', modern: 'romantic pop love song', words: ['kiss', 'love', 'embrace', 'tender', 'blush', 'heart', 'caress', 'gentle', 'поцелу', 'любл', 'любов', 'обним', 'объят', 'нежн', 'сердц', 'ласк', 'романт'] },
+    { mood: 'sorrowful', ru: 'печаль', tag: 'sad', query: 'sad melancholic piano emotional', modern: 'sad emotional ballad', words: ['tears', 'cry', 'crying', 'grief', 'loss', 'mourn', 'sorrow', 'weep', 'слез', 'плакал', 'плач', 'горе', 'печал', 'утрат', 'скорб', 'груст'] },
+    { mood: 'mysterious', ru: 'загадочность', tag: 'tension', query: 'suspense noir mysterious tension strings', modern: 'dark trap suspense', words: ['mystery', 'secret', 'investigate', 'clue', 'whisper', 'suspicion', 'hidden', 'тайн', 'загадк', 'секрет', 'улик', 'шепот', 'шёпот', 'подозр', 'скрыт'] },
+    { mood: 'magical', ru: 'магия', tag: 'magic', query: 'fantasy magical ethereal orchestral mystical', modern: 'ethereal dream pop magical', words: ['magic', 'spell', 'wizard', 'ritual', 'arcane', 'enchant', 'маги', 'заклинан', 'волшеб', 'ритуал', 'чар', 'колд'] },
+    { mood: 'adventurous', ru: 'приключение', tag: 'adventure', query: 'cinematic adventure journey folk orchestral', modern: 'indie rock adventure anthem', words: ['journey', 'travel', 'forest', 'road', 'mountain', 'explore', 'quest', 'путешеств', 'дорог', 'лес', 'гор', 'странств', 'поход', 'путь'] },
+    { mood: 'festive', ru: 'праздник', tag: 'party', query: 'upbeat fun swing dance party', modern: 'party hits dance pop', words: ['dance', 'party', 'laugh', 'festival', 'celebrate', 'drink', 'tavern', 'танц', 'вечеринк', 'смех', 'смея', 'праздник', 'весел', 'таверн'] },
+    { mood: 'cozy', ru: 'уют', tag: 'calm', query: 'cozy calm acoustic warm lo-fi', modern: 'chill lo-fi indie cozy', words: ['cozy', 'warm', 'tea', 'coffee', 'fireplace', 'rain', 'blanket', 'calm', 'quiet', 'уют', 'тепл', 'чай', 'кофе', 'камин', 'дожд', 'плед', 'спокой', 'тиш'] },
 ];
 
 // Popular RP franchises — when detected, search their official soundtracks instead
@@ -456,6 +611,10 @@ function detectFandom(sceneText, cardText) {
     return bestScore >= 2 ? best : null;
 }
 
+function moodLabel(rule) {
+    return lang() === 'ru' && rule.ru ? rule.ru : rule.mood;
+}
+
 function keywordMood(sceneText, cardText = '') {
     const text = sceneText.toLowerCase();
     let best = null;
@@ -470,17 +629,17 @@ function keywordMood(sceneText, cardText = '') {
     const fandom = detectFandom(sceneText, cardText);
     if (fandom) {
         return {
-            mood: `${fandom.name}${best ? ` · ${best.mood}` : ''}`,
+            mood: `${fandom.name}${best ? ` · ${moodLabel(best)}` : ''}`,
             energy: 5,
             query: `${fandom.query} ${best ? best.tag : ''}`.trim(),
-            reason: 'keyword engine · fandom',
+            reason: t('reasonKeywordFandom'),
         };
     }
     if (!best) {
-        return { mood: 'ambient', energy: 4, query: 'cinematic ambient atmospheric instrumental', reason: 'keyword engine · default' };
+        return { mood: t('moodAmbient'), energy: 4, query: 'cinematic ambient atmospheric instrumental', reason: t('reasonDefault') };
     }
     const query = settings.musicStyle === 'modern' ? best.modern : best.query;
-    return { mood: best.mood, energy: 5, query, reason: 'keyword engine' };
+    return { mood: moodLabel(best), energy: 5, query, reason: t('reasonKeyword') };
 }
 
 function parseMood(raw) {
@@ -495,7 +654,7 @@ function parseMood(raw) {
                     ? String(parsed.fandom).slice(0, 40)
                     : '';
                 return {
-                    mood: `${fandom ? `${fandom} · ` : ''}${String(parsed.mood || 'vibe').slice(0, 60)}`,
+                    mood: `${fandom ? `${fandom} · ` : ''}${String(parsed.mood || t('moodDefault')).slice(0, 60)}`,
                     energy: Number(parsed.energy) || 5,
                     query: parsed.query.trim().slice(0, 120),
                     reason: String(parsed.reason || '').slice(0, 140),
@@ -511,63 +670,63 @@ async function analyzeAndPlay({ force = false, hint = '' } = {}) {
     if (analyzing) return;
     if (!settings.enabled) return;
     if (!settings.refreshToken) {
-        status('Connect Spotify first (Extensions → RP Vibe Music).');
+        status(t('connectFirst'));
         return;
     }
     analyzing = true;
     try {
         let mood;
         if (hint) {
-            mood = { mood: hint.slice(0, 60), energy: 5, query: hint, reason: 'manual override' };
+            mood = { mood: hint.slice(0, 60), energy: 5, query: hint, reason: t('reasonManual') };
         } else {
             const scene = getSceneText();
             if (!scene) {
-                status('No messages to analyze yet.');
+                status(t('noMessages'));
                 return;
             }
             const engine = settings.moodEngine || 'auto';
             const cardText = getCardText();
             if (engine !== 'keywords') {
-                status('Analyzing the scene mood…');
+                status(t('analyzing'));
                 try {
                     const raw = await withTimeout(runLLM(buildPrompt(scene, cardText)), 90_000, 'LLM analysis timed out');
                     mood = parseMood(raw);
                 } catch (err) {
                     console.warn(LOG, 'LLM mood analysis failed:', err);
                     if (engine === 'llm') {
-                        status(`Mood analysis failed: ${err.message}`);
+                        status(t('moodFailed', { message: err.message }));
                         return;
                     }
                 }
             }
             if (!mood?.query) {
                 if (engine === 'llm') {
-                    status('Mood analysis failed: could not parse the LLM reply.');
+                    status(t('moodParse'));
                     return;
                 }
                 mood = keywordMood(scene, cardText);
             }
         }
         if (!mood?.query) {
-            status('Could not determine a vibe from the scene.');
+            status(t('noVibe'));
             return;
         }
         mood.query = sanitizeQuery(mood.query);
         if (!mood.query) {
-            status('Mood query was empty after sanitizing — try /vibe with a manual query.');
+            status(t('emptyQuery'));
             return;
         }
         if (!force && currentTrack && currentMood?.query &&
             mood.query.toLowerCase() === currentMood.query.toLowerCase()) {
             lastAnalysisAt = Date.now();
             aiMessageCounter = 0;
-            status(`Vibe unchanged (${mood.mood}) — keeping the current track.`);
+            status(t('vibeUnchanged', { mood: mood.mood }));
             return;
         }
-        status(`Searching Spotify: "${mood.query}"…`);
+        status(t('searching', { query: mood.query }));
         const results = await searchTracks(mood.query);
         if (!results.length) {
-            status(`No tracks found for "${mood.query}".`);
+            status(t('noTracks', { query: mood.query }));
             return;
         }
         currentMood = mood;
@@ -579,11 +738,11 @@ async function analyzeAndPlay({ force = false, hint = '' } = {}) {
         aiMessageCounter = 0;
         renderBlock(result.ok ? '' : result.note);
         status(result.ok
-            ? `Now playing: ${currentTrack.name} — ${currentTrack.artists} (${mood.mood})`
+            ? t('nowPlayingMood', { name: currentTrack.name, artists: currentTrack.artists, mood: mood.mood })
             : result.note);
     } catch (err) {
         console.error(LOG, err);
-        status(`Error: ${err.message}`);
+        status(t('error', { message: err.message }));
     } finally {
         analyzing = false;
     }
@@ -605,15 +764,15 @@ function renderBlock(note = '') {
     <div class="rvm-block">
         ${t.image ? `<img class="rvm-art" src="${esc(t.image)}" alt="">` : ''}
         <div class="rvm-meta">
-            <div class="rvm-mood">♪ ${esc(m?.mood || 'vibe')}${m?.reason ? ` — ${esc(m.reason)}` : ''}</div>
+            <div class="rvm-mood">♪ ${esc(m?.mood || t('moodDefault'))}${m?.reason ? ` — ${esc(m.reason)}` : ''}</div>
             <a class="rvm-title" href="${esc(t.url)}" target="_blank" rel="noopener">${esc(t.name)}</a>
             <div class="rvm-artist">${esc(t.artists)}</div>
             ${note ? `<div class="rvm-note">${esc(note)}</div>` : ''}
         </div>
         <div class="rvm-controls">
-            <div class="rvm-btn rvm-btn-toggle fa-solid ${isPlaying ? 'fa-pause' : 'fa-play'}" title="Play / Pause"></div>
-            <div class="rvm-btn rvm-btn-next fa-solid fa-forward" title="Another track for this vibe"></div>
-            <div class="rvm-btn rvm-btn-reroll fa-solid fa-arrows-rotate" title="Re-analyze the scene"></div>
+            <div class="rvm-btn rvm-btn-toggle fa-solid ${isPlaying ? 'fa-pause' : 'fa-play'}" title="${esc(t('ttToggle'))}"></div>
+            <div class="rvm-btn rvm-btn-next fa-solid fa-forward" title="${esc(t('ttNext'))}"></div>
+            <div class="rvm-btn rvm-btn-reroll fa-solid fa-arrows-rotate" title="${esc(t('ttReroll'))}"></div>
         </div>
     </div>`;
     target.append(html);
@@ -631,58 +790,81 @@ function onCharacterMessage() {
 
 // -------------------------------------------------------------- settings UI ---
 
-const settingsHtml = `
+function buildSettingsHtml() {
+    return `
 <div class="rvm-ext-settings">
     <div class="inline-drawer">
         <div class="inline-drawer-toggle inline-drawer-header">
-            <b>🎵 RP Vibe Music (Spotify)</b>
+            <b>${t('sTitle')}</b>
             <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
         </div>
         <div class="inline-drawer-content">
-            <label class="checkbox_label"><input id="rvm_enabled" type="checkbox"><span>Enabled</span></label>
-            <label class="checkbox_label"><input id="rvm_auto" type="checkbox"><span>Auto mode — adapt music to the scene</span></label>
-            <label class="checkbox_label"><input id="rvm_inline" type="checkbox"><span>Show "Now playing" block in chat</span></label>
-            <label class="checkbox_label"><input id="rvm_keep" type="checkbox"><span>Keep old music blocks in chat</span></label>
-            <label class="checkbox_label"><input id="rvm_fandom" type="checkbox"><span>Use franchise soundtracks when detected (Genshin, Harry Potter…)</span></label>
-            <label>Music style
+            <label>${esc(t('sLanguage'))}
+                <select id="rvm_lang" class="text_pole">
+                    <option value="auto">${esc(t('sLangAuto'))}</option>
+                    <option value="en">English</option>
+                    <option value="ru">Русский</option>
+                </select>
+            </label>
+            <label class="checkbox_label"><input id="rvm_enabled" type="checkbox"><span>${esc(t('sEnabled'))}</span></label>
+            <label class="checkbox_label"><input id="rvm_auto" type="checkbox"><span>${esc(t('sAuto'))}</span></label>
+            <label class="checkbox_label"><input id="rvm_inline" type="checkbox"><span>${esc(t('sInline'))}</span></label>
+            <label class="checkbox_label"><input id="rvm_keep" type="checkbox"><span>${esc(t('sKeep'))}</span></label>
+            <label class="checkbox_label"><input id="rvm_fandom" type="checkbox"><span>${esc(t('sFandom'))}</span></label>
+            <label>${esc(t('sStyle'))}
                 <select id="rvm_style" class="text_pole">
-                    <option value="auto">Auto — famous songs when they fit, cinematic otherwise</option>
-                    <option value="modern">Modern popular — rock / rap / metal / pop with vocals</option>
-                    <option value="soundtrack">Instrumental / soundtrack only</option>
+                    <option value="auto">${esc(t('sStyleAuto'))}</option>
+                    <option value="modern">${esc(t('sStyleModern'))}</option>
+                    <option value="soundtrack">${esc(t('sStyleSoundtrack'))}</option>
                 </select>
             </label>
-            <label>Mood engine
+            <label>${esc(t('sEngine'))}
                 <select id="rvm_engine" class="text_pole">
-                    <option value="auto">LLM with keyword fallback (default)</option>
-                    <option value="llm">LLM only</option>
-                    <option value="keywords">Keywords only — no LLM calls</option>
+                    <option value="auto">${esc(t('sEngineAuto'))}</option>
+                    <option value="llm">${esc(t('sEngineLlm'))}</option>
+                    <option value="keywords">${esc(t('sEngineKeywords'))}</option>
                 </select>
             </label>
-            <label>Analyze every N character messages
+            <label>${esc(t('sInterval'))}
                 <input id="rvm_interval" type="number" min="1" max="20" class="text_pole">
             </label>
             <hr>
             <label>Spotify Client ID
-                <input id="rvm_client_id" type="text" class="text_pole" placeholder="from developer.spotify.com">
+                <input id="rvm_client_id" type="text" class="text_pole" placeholder="${esc(t('sClientIdPh'))}">
             </label>
-            <label>Redirect URI (must match your Spotify app exactly)
+            <label>${esc(t('sRedirect'))}
                 <input id="rvm_redirect" type="text" class="text_pole">
             </label>
             <div class="rvm-btnrow">
-                <div id="rvm_connect" class="menu_button">Connect Spotify</div>
-                <div id="rvm_disconnect" class="menu_button">Disconnect</div>
-                <div id="rvm_analyze" class="menu_button">Analyze now</div>
+                <div id="rvm_connect" class="menu_button">${esc(t('sConnect'))}</div>
+                <div id="rvm_disconnect" class="menu_button">${esc(t('sDisconnect'))}</div>
+                <div id="rvm_analyze" class="menu_button">${esc(t('sAnalyze'))}</div>
             </div>
-            <div id="rvm_status" class="rvm-status">Not connected.</div>
-            <small>Playback control needs Spotify Premium. Use <code>/vibe</code> to re-analyze the scene, or <code>/vibe dark epic orchestral</code> to force a vibe.</small>
+            <div id="rvm_status" class="rvm-status">${esc(t('notConnected'))}</div>
+            <small>${t('sHint')}</small>
         </div>
     </div>
 </div>`;
+}
 
 function addSettingsUi() {
     const container = $('#extensions_settings2').length ? $('#extensions_settings2') : $('#extensions_settings');
-    container.append(settingsHtml);
+    const existing = container.find('.rvm-ext-settings');
+    const wasOpen = existing.find('.inline-drawer-content').is(':visible');
+    existing.remove();
+    container.append(buildSettingsHtml());
+    if (wasOpen) {
+        container.find('.rvm-ext-settings .inline-drawer-toggle').addClass('open');
+        container.find('.rvm-ext-settings .inline-drawer-content').show();
+    }
 
+    $('#rvm_lang').val(settings.language || 'auto').on('change', function () {
+        settings.language = this.value;
+        save();
+        addSettingsUi();
+        updateConnectionUi();
+        renderBlock();
+    });
     $('#rvm_enabled').prop('checked', settings.enabled).on('change', function () { settings.enabled = this.checked; save(); });
     $('#rvm_auto').prop('checked', settings.autoMode).on('change', function () { settings.autoMode = this.checked; save(); });
     $('#rvm_inline').prop('checked', settings.inlineBlock).on('change', function () { settings.inlineBlock = this.checked; save(); if (!this.checked) $('#chat .rvm-block').remove(); });
@@ -708,7 +890,7 @@ function updateConnectionUi() {
     const connected = !!settings.refreshToken;
     $('#rvm_connect').toggle(!connected);
     $('#rvm_disconnect').toggle(connected);
-    if (connected) status('Connected to Spotify.');
+    if (connected) status(t('connectedShort'));
 }
 
 // --------------------------------------------------------- slash commands ---
@@ -733,7 +915,7 @@ function registerCommands() {
                 name: 'vibe',
                 callback: handler,
                 unnamedArgumentList,
-                helpString: 'Adapt Spotify music to the current RP scene. Optionally force a vibe: /vibe dark epic orchestral',
+                helpString: t('slashHelp'),
             }));
             return;
         }
@@ -741,7 +923,7 @@ function registerCommands() {
         console.warn(LOG, 'Modern slash command registration failed, falling back.', err);
     }
     try {
-        ctx.registerSlashCommand?.('vibe', handler, [], '– adapt Spotify music to the current RP scene', true, true);
+        ctx.registerSlashCommand?.('vibe', handler, [], `– ${t('slashHelp')}`, true, true);
     } catch (err) {
         console.warn(LOG, 'Slash command registration failed.', err);
     }
